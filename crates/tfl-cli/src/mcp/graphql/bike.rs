@@ -43,18 +43,27 @@ impl BikePoint {
             .and_then(|v| v.parse().ok())
     }
 
+    /// Whether the station is actually usable.
+    ///
+    /// TfL leaves the last-synced counts on a station it has pulled for
+    /// maintenance, so a locked dock can still report four bikes. Counts alone
+    /// would send someone to it.
+    pub(crate) fn in_service(&self) -> bool {
+        self.flag("Installed") != Some(false) && self.flag("Locked") != Some(true)
+    }
+
     /// Whether a bike can be taken right now.
     ///
     /// A station that did not report a count is treated as having none: an
     /// absent figure is not a promise of a bike, and sending someone to an
     /// empty dock is the worse failure.
     pub(crate) fn has_bikes(&self) -> bool {
-        self.count("NbBikes").is_some_and(|n| n > 0)
+        self.in_service() && self.count("NbBikes").is_some_and(|n| n > 0)
     }
 
     /// Whether a bike can be returned right now.
     pub(crate) fn has_docks(&self) -> bool {
-        self.count("NbEmptyDocks").is_some_and(|n| n > 0)
+        self.in_service() && self.count("NbEmptyDocks").is_some_and(|n| n > 0)
     }
 
     fn flag(&self, key: &str) -> Option<bool> {
@@ -124,6 +133,9 @@ impl BikePoint {
     }
 
     /// Whether a bike can be taken right now.
+    ///
+    /// False for a station that is locked or not installed, whatever its counts
+    /// say — TfL leaves stale counts on stations it has taken out of service.
     #[graphql(name = "hasBikes")]
     async fn has_bikes_field(&self) -> bool {
         self.has_bikes()
@@ -259,6 +271,34 @@ mod tests {
         assert_eq!(point.count("NbBikes"), None);
         assert_eq!(point.count("NbEmptyDocks"), None);
         assert!(!point.has_bikes());
+    }
+
+    #[test]
+    fn a_locked_station_has_nothing_available_whatever_it_reports() {
+        // The failure this prevents: TfL leaves the last-synced counts on a
+        // station pulled for maintenance, so it reports bikes it cannot give
+        // you. Trusting the count sends someone to a locked dock.
+        let locked = bike_point(&[("NbBikes", "4"), ("NbEmptyDocks", "9"), ("Locked", "true")]);
+        assert!(!locked.has_bikes());
+        assert!(!locked.has_docks());
+        assert_eq!(
+            locked.count("NbBikes"),
+            Some(4),
+            "the raw count is still reported"
+        );
+
+        let uninstalled = bike_point(&[
+            ("NbBikes", "4"),
+            ("NbEmptyDocks", "9"),
+            ("Installed", "false"),
+        ]);
+        assert!(!uninstalled.has_bikes());
+
+        // A station that says nothing about its state is assumed fine; most
+        // do not report these flags at all.
+        let ordinary = bike_point(&[("NbBikes", "4"), ("NbEmptyDocks", "9")]);
+        assert!(ordinary.has_bikes());
+        assert!(ordinary.has_docks());
     }
 
     #[test]

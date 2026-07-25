@@ -5,7 +5,7 @@ use std::sync::Arc;
 use clap::{CommandFactory, Parser, Subcommand};
 use tfl_api_client::{Client, Config};
 use tfl_cli::{
-    app_key_from_env,
+    app_key_from_env, cache_from_env,
     mcp::{self, HttpSurfaces, graphql},
     output::Output,
 };
@@ -94,22 +94,27 @@ async fn run() -> anyhow::Result<()> {
             http,
             graphql: serve_graphql,
             graphiql,
-        } => match http {
-            Some(addr) => {
-                mcp::run_http_server(
-                    &addr,
-                    app_key,
-                    HttpSurfaces {
-                        mcp: true,
-                        graphql: serve_graphql || graphiql,
-                        graphiql,
-                        browser: graphiql,
-                    },
-                )
-                .await
+        } => {
+            // Checked before binding: a server that starts and then fails every
+            // query is worse than one that refuses to start.
+            verify_app_key(&app_key).await?;
+            match http {
+                Some(addr) => {
+                    mcp::run_http_server(
+                        &addr,
+                        app_key,
+                        HttpSurfaces {
+                            mcp: true,
+                            graphql: serve_graphql || graphiql,
+                            graphiql,
+                            browser: graphiql,
+                        },
+                    )
+                    .await
+                }
+                None => mcp::run_server(app_key).await,
             }
-            None => mcp::run_server(app_key).await,
-        },
+        }
 
         Commands::Schema => {
             println!("{}", graphql::sdl());
@@ -219,8 +224,24 @@ async fn run_query(query: &str, app_key: Option<String>) -> anyhow::Result<()> {
 fn client(app_key: Option<String>) -> anyhow::Result<Arc<Client>> {
     Ok(Arc::new(Client::new(Config {
         app_key,
+        cache: cache_from_env(),
         ..Default::default()
     })?))
+}
+
+/// Fails fast on a key TfL will not accept.
+///
+/// Without this a mistyped key surfaces as a 429 on the first real query, which
+/// is indistinguishable from ordinary throttling and turns up hours later,
+/// nowhere near the cause.
+async fn verify_app_key(app_key: &Option<String>) -> anyhow::Result<()> {
+    if app_key.is_none() {
+        return Ok(());
+    }
+    client(app_key.clone())?
+        .check_credentials()
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}. Unset TFL_APP_KEY to use TfL anonymously."))
 }
 
 #[cfg(test)]

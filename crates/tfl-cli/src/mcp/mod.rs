@@ -12,7 +12,7 @@ pub mod graphql;
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, PoisonError},
 };
 
 use rmcp::{
@@ -93,7 +93,12 @@ impl TflMcp {
     }
 
     fn client_for(&self, app_key: Option<String>) -> Arc<Client> {
-        if let Some(existing) = self.clients.lock().unwrap().get(&app_key) {
+        if let Some(existing) = self
+            .clients
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&app_key)
+        {
             return existing.clone();
         }
         // Construction does no I/O, so building one under the lock on a race is
@@ -101,6 +106,7 @@ impl TflMcp {
         let client = Arc::new(
             Client::new(Config {
                 app_key: app_key.clone(),
+                cache: crate::cache_from_env(),
                 ..Default::default()
             })
             .expect("client construction cannot fail with a default config"),

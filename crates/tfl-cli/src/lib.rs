@@ -14,6 +14,17 @@
 pub mod mcp;
 pub mod output;
 
+/// Whether to reuse responses for as long as TfL says they are fresh.
+///
+/// Off unless `TFL_CACHE` is set. Arrivals are the point of this API and go
+/// stale in seconds, so the default has to be live; metadata endpoints TfL
+/// marks as good for twelve hours are what makes it worth having at all.
+pub fn cache_from_env() -> bool {
+    std::env::var("TFL_CACHE")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
 /// The `app_key` from the environment.
 ///
 /// Empty is treated as absent: an unset variable arrives as `""`, and TfL

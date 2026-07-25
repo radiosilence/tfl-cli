@@ -1,6 +1,8 @@
 //! The transport half of the client: authentication, retries and error mapping.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+
+use tokio::sync::Semaphore;
 
 use crate::{
     Error, Result,
@@ -24,6 +26,15 @@ pub struct Config {
     pub timeout: Duration,
     /// Retries on 5xx and on throttling. Does not apply to a rejected key.
     pub max_retries: u32,
+    /// Ceiling on requests in flight at once.
+    ///
+    /// A GraphQL query can ask for something whose width is not obvious from
+    /// its shape — every stop on every bus line is 676 lines, two levels deep —
+    /// and each of those becomes a request. Without a ceiling one tool call
+    /// opens hundreds of sockets and burns a minute's rate limit in a second.
+    /// The GraphQL layer rejects the truly absurd queries, but this is the
+    /// backstop that does not depend on anticipating the shape.
+    pub max_concurrency: usize,
     /// Reuse responses for as long as TfL's own `Cache-Control` says they are
     /// fresh. Off by default so live data stays live.
     pub cache: bool,
@@ -36,6 +47,10 @@ impl Default for Config {
             base_url: DEFAULT_BASE_URL.to_string(),
             timeout: Duration::from_secs(30),
             max_retries: 2,
+            // TfL allows 500 requests/minute with a key and 50 without. Eight
+            // at a time keeps a burst well inside either while still being far
+            // faster than serial.
+            max_concurrency: 8,
             cache: false,
         }
     }
@@ -45,6 +60,7 @@ pub struct Client {
     http: reqwest::Client,
     config: Config,
     cache: Cache,
+    in_flight: Arc<Semaphore>,
 }
 
 impl Client {
@@ -75,6 +91,7 @@ impl Client {
                 .timeout(config.timeout)
                 .default_headers(headers)
                 .build()?,
+            in_flight: Arc::new(Semaphore::new(config.max_concurrency.max(1))),
             config,
             cache: Cache::new(),
         })
@@ -123,6 +140,16 @@ impl Client {
         {
             return decode(path, &body);
         }
+
+        // Held for the whole request including retries, so a retry storm cannot
+        // widen past the ceiling either. The semaphore is never closed, so
+        // acquire only fails if it were.
+        let _permit = self
+            .in_flight
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("the in-flight semaphore is never closed");
 
         let url = format!("{}{path}", self.config.base_url);
         // One line per upstream request, so the batching the DataLoaders do is

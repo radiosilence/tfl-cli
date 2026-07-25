@@ -73,6 +73,9 @@ impl Line {
     /// Disruptions currently affecting this line.
     ///
     /// Costs one request per line, batched across every line in the query.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(5).saturating_add(5).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn disruptions(&self, ctx: &Context<'_>) -> Result<Vec<Disruption>> {
         let Some(id) = self.0.id.clone() else {
             return Ok(Vec::new());
@@ -93,7 +96,11 @@ impl Line {
     ///
     /// Costs one request per line and returns a lot — the Central line alone is
     /// 49 stops. Ask for `stopPoints { id commonName }` rather than whole stop
-    /// points unless you need the detail.
+    /// points unless you need the detail, and do not ask for it across every
+    /// line on a mode: 676 bus lines is 676 requests and will be refused.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(50).saturating_add(20).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn stop_points(&self, ctx: &Context<'_>) -> Result<Vec<StopPoint>> {
         let Some(id) = self.0.id.clone() else {
             return Ok(Vec::new());
@@ -206,6 +213,9 @@ impl StopPoint {
     ///
     /// The ids are already in the payload; asking for anything beyond `id` and
     /// `name` costs one batched request for all lines across the whole query.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(10).saturating_add(5).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn lines(&self, ctx: &Context<'_>) -> Result<Vec<Line>> {
         let identifiers = self.inner.lines.clone().unwrap_or_default();
         let ids: Vec<String> = identifiers.iter().filter_map(|l| l.id.clone()).collect();
@@ -231,6 +241,9 @@ impl StopPoint {
     /// `first` to trim it.
     ///
     /// This is live data and goes stale in seconds; it is never cached.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(30).saturating_add(10).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn arrivals(
         &self,
         ctx: &Context<'_>,

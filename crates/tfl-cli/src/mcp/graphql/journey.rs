@@ -28,6 +28,14 @@ pub struct JourneyPlan {
     pub(crate) journeys: Vec<models::JourneyPlannerJourney>,
     pub(crate) from_options: Vec<LocationOption>,
     pub(crate) to_options: Vec<LocationOption>,
+    /// Whether TfL rejected the request as ambiguous.
+    ///
+    /// Recorded rather than inferred from the options being non-empty. TfL can
+    /// answer `300` with no usable candidates at all, and a body it sends can
+    /// fail to parse; inferring would turn both into `journeys: []` with
+    /// `isAmbiguous: false` — a confident "there is no route between these
+    /// places", which is a different and wrong answer.
+    pub(crate) ambiguous: bool,
 }
 
 #[Object]
@@ -40,8 +48,12 @@ impl JourneyPlan {
 
     /// True when TfL could not tell which place was meant and returned
     /// candidates instead of routes.
+    ///
+    /// If this is true and both option lists are empty, TfL rejected the names
+    /// but offered nothing to choose from — rephrase, or use a NaPTAN id or a
+    /// `lat,lon` pair. It does not mean no route exists.
     async fn is_ambiguous(&self) -> bool {
-        !self.from_options.is_empty() || !self.to_options.is_empty()
+        self.ambiguous
     }
 
     /// Candidate origins when `from` was ambiguous, stations first.
@@ -336,6 +348,7 @@ impl JourneyPlan {
             journeys: result.journeys.unwrap_or_default(),
             from_options: Vec::new(),
             to_options: Vec::new(),
+            ambiguous: false,
         }
     }
 
@@ -380,6 +393,9 @@ impl JourneyPlan {
                     journeys: Vec::new(),
                     from_options: Vec::new(),
                     to_options: Vec::new(),
+                    // Still ambiguous: TfL said so with a 300, and only the
+                    // candidate list was unreadable.
+                    ambiguous: true,
                 };
             }
         };
@@ -387,6 +403,7 @@ impl JourneyPlan {
             journeys: Vec::new(),
             from_options: options(parsed.from_location_disambiguation),
             to_options: options(parsed.to_location_disambiguation),
+            ambiguous: true,
         }
     }
 }
@@ -601,9 +618,20 @@ mod tests {
     }
 
     #[test]
-    fn an_unparseable_body_is_not_an_error() {
+    fn an_unparseable_body_is_still_reported_as_ambiguous() {
+        // The trap: with no options to infer from, this would otherwise read as
+        // a confident "no route exists between these two places" when what TfL
+        // actually said was "which one did you mean".
         let plan = JourneyPlan::from_ambiguous("not json");
         assert!(plan.journeys.is_empty());
         assert!(plan.to_options.is_empty());
+        assert!(plan.ambiguous, "a 300 is ambiguous even when unreadable");
+
+        // And a 300 carrying an empty candidate list, likewise.
+        let empty = JourneyPlan::from_ambiguous(
+            r#"{"toLocationDisambiguation":{"disambiguationOptions":[]}}"#,
+        );
+        assert!(empty.ambiguous);
+        assert!(empty.to_options.is_empty());
     }
 }

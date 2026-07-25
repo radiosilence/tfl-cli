@@ -48,6 +48,9 @@ impl QueryRoot {
     ///
     /// One request per 20 ids. Ids TfL does not recognise are simply absent
     /// from the result rather than failing the query.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(20).saturating_add(5).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn stop_points(
         &self,
         ctx: &Context<'_>,
@@ -68,6 +71,9 @@ impl QueryRoot {
     ///
     /// The usual way in when a person named a station rather than an id. One
     /// request.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(20).saturating_add(10).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn search_stop_points(
         &self,
         ctx: &Context<'_>,
@@ -110,6 +116,9 @@ impl QueryRoot {
     /// Stop points near a coordinate, nearest first.
     ///
     /// `radius` is in metres. One request.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(20).saturating_add(10).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn stop_points_near(
         &self,
         ctx: &Context<'_>,
@@ -160,6 +169,9 @@ impl QueryRoot {
     }
 
     /// Several lines at once. One request per 20 ids.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(20).saturating_add(5).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn lines(&self, ctx: &Context<'_>, ids: Vec<String>) -> Result<Vec<Line>> {
         let loaded = loaders(ctx)
             .line
@@ -177,6 +189,9 @@ impl QueryRoot {
     ///
     /// `linesByMode(modes: ["tube"]) { name statuses { description } }` is the
     /// whole-network status board, in one request.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(40).saturating_add(10).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn lines_by_mode(
         &self,
         ctx: &Context<'_>,
@@ -194,6 +209,9 @@ impl QueryRoot {
     /// Lines that are not running a good service.
     ///
     /// The direct answer to "is anything broken right now". One request.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(20).saturating_add(10).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn disrupted_lines(
         &self,
         ctx: &Context<'_>,
@@ -351,6 +369,9 @@ impl QueryRoot {
     /// around 800 stations, which is then measured and filtered locally
     /// because TfL offers no geographic filter for bike points.
     #[allow(clippy::too_many_arguments)]
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(10).saturating_add(20).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn bike_points_near(
         &self,
         ctx: &Context<'_>,
@@ -415,6 +436,9 @@ impl QueryRoot {
     ///
     /// Twenty-four of them — the A406, the A2 and so on — so this is the whole
     /// list rather than a page of it.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(24).saturating_add(5).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn roads(&self, ctx: &Context<'_>) -> Result<Vec<Road>> {
         let roads = client(ctx).road_get().await.map_err(to_gql_error)?;
         Ok(roads.into_iter().map(Road).collect())
@@ -439,6 +463,9 @@ impl QueryRoot {
     /// The direct answer to "why is the traffic bad". One request; around a
     /// hundred live at any time, so filter by severity or ask for `first`
     /// unless you want all of them.
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(20).saturating_add(10).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn road_disruptions(
         &self,
         ctx: &Context<'_>,
@@ -570,6 +597,9 @@ impl QueryRoot {
     /// Give `lat`/`lon` to ask about a junction or street, or `borough` for an
     /// area.
     #[allow(clippy::too_many_arguments)]
+    #[graphql(
+        complexity = "child_complexity.saturating_mul(25).saturating_add(100).min(super::COMPLEXITY_CEILING)"
+    )]
     async fn accidents(
         &self,
         ctx: &Context<'_>,

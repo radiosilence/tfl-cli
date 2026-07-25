@@ -29,6 +29,27 @@ use query::QueryRoot;
 /// that would walk the network forever.
 const MAX_DEPTH: usize = 15;
 
+/// Ceiling on estimated query cost.
+///
+/// Depth alone does not describe how much work a query is: `linesByMode(modes:
+/// ["bus"]) { stopPoints { id } }` is two levels deep and 676 lines wide, so it
+/// would pass a depth check and then make 676 requests. Fields that fan out
+/// declare a multiplier for how wide they typically are, and anything whose
+/// product lands past this is refused before a single request goes out.
+///
+/// Set so every example in the README passes comfortably and the fan-out
+/// queries do not.
+pub const MAX_COMPLEXITY: usize = 1_000;
+
+/// Ceiling on any single field's computed cost.
+///
+/// Nesting multiplies these together, which overflows `usize` a few levels in —
+/// and an overflowed cost wraps to something small, so the limit silently stops
+/// limiting in a release build. Clamping each field keeps every sum
+/// representable. Far above [`MAX_COMPLEXITY`], so nothing a caller would
+/// legitimately write notices it.
+pub const COMPLEXITY_CEILING: usize = 1_000_000;
+
 pub type TflSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 
 /// Builds the schema.
@@ -42,6 +63,7 @@ pub type TflSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 pub fn schema() -> TflSchema {
     Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
         .limit_depth(MAX_DEPTH)
+        .limit_complexity(MAX_COMPLEXITY)
         .finish()
 }
 

@@ -14,7 +14,7 @@
 use std::{
     collections::HashMap,
     sync::{
-        Mutex,
+        Mutex, PoisonError,
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, Instant},
@@ -54,7 +54,7 @@ impl Cache {
     }
 
     pub(crate) fn get(&self, key: &str) -> Option<String> {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         match entries.get(key) {
             Some(entry) if entry.stored.elapsed() < entry.ttl => {
                 self.hits.fetch_add(1, Ordering::Relaxed);
@@ -76,7 +76,7 @@ impl Cache {
         if ttl.is_zero() {
             return;
         }
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         if entries.len() >= CAPACITY
             && !entries.contains_key(&key)
             && let Some(oldest) = entries
@@ -97,12 +97,19 @@ impl Cache {
     }
 
     pub(crate) fn clear(&self) {
-        self.entries.lock().unwrap().clear();
+        self.entries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
     }
 
     pub(crate) fn stats(&self) -> CacheStats {
         CacheStats {
-            entries: self.entries.lock().unwrap().len(),
+            entries: self
+                .entries
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .len(),
             hits: self.hits.load(Ordering::Relaxed),
             misses: self.misses.load(Ordering::Relaxed),
         }

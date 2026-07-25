@@ -122,6 +122,69 @@ fn journey_planning_exposes_the_ambiguous_case() {
     );
 }
 
+#[tokio::test]
+async fn a_wide_query_is_refused_without_touching_the_network() {
+    // The query this exists for: two levels deep, inside every depth limit, and
+    // 676 bus lines wide. Resolved, it would fire 676 concurrent requests and
+    // burn a minute of TfL's rate limit in one tool call.
+    let client = std::sync::Arc::new(
+        tfl_api_client::Client::new(tfl_api_client::Config {
+            // Unroutable, so a request escaping the guard fails loudly rather
+            // than quietly hammering TfL from a test run.
+            base_url: "http://127.0.0.1:1".to_string(),
+            ..Default::default()
+        })
+        .unwrap(),
+    );
+
+    let response = schema()
+        .execute(request(
+            r#"{ linesByMode(modes: ["bus"]) { stopPoints { id } } }"#,
+            client,
+        ))
+        .await;
+
+    assert!(
+        response
+            .errors
+            .iter()
+            .any(|e| e.message.contains("too complex")),
+        "a query this wide must be refused, got {:?}",
+        response.errors
+    );
+}
+
+#[tokio::test]
+async fn the_documented_examples_are_within_the_limits() {
+    // The complexity ceiling is only useful if it refuses the pathological
+    // shapes without refusing the ones the README tells people to write.
+    let client = std::sync::Arc::new(
+        tfl_api_client::Client::new(tfl_api_client::Config {
+            base_url: "http://127.0.0.1:1".to_string(),
+            ..Default::default()
+        })
+        .unwrap(),
+    );
+
+    for query in [
+        r#"{ stopPoint(id: "X") { arrivals(first: 40) { timeToStation line { name } destination { commonName } } } }"#,
+        r#"{ line(id: "victoria") { isGoodService statuses { description } } airQuality { current { band } } bikePointsNear(lat: 51.5, lon: -0.1) { commonName eBikes } }"#,
+        r#"{ journey(from: "a", to: "b") { journeys { duration legs { mode summary disruptions { description } } } } }"#,
+        r#"{ roadDisruptions(first: 5) { severity location roads { displayName status } } }"#,
+        r#"{ accidents(lat: 51.5, lon: -0.1) { date severity casualties { class mode } vehicles } }"#,
+    ] {
+        let response = schema().execute(request(query, client.clone())).await;
+        assert!(
+            !response
+                .errors
+                .iter()
+                .any(|e| e.message.contains("too complex") || e.message.contains("nested too deep")),
+            "a documented example was refused by the limits: {query}\n{:?}",
+            response.errors
+        );
+    }
+}
+
 #[test]
 fn expensive_fields_say_so() {
     // A caller cannot see a download size, so the one field that costs tens of
@@ -178,7 +241,7 @@ fn the_schema_is_read_only() {
 }
 
 #[tokio::test]
-async fn depth_limited_queries_are_rejected_before_any_request() {
+async fn runaway_queries_are_rejected_before_any_request() {
     // A query deep enough to trip the limit must fail on the limit, not by
     // walking the network to find out.
     // Each repeat is two levels (stopPoints, then lines), so this is well past
@@ -201,12 +264,16 @@ async fn depth_limited_queries_are_rejected_before_any_request() {
 
     let response = schema().execute(request(&deep, client)).await;
     assert!(response.is_err(), "expected the depth limit to reject this");
+    // Either guard is a pass. Walking the graph is both deep and wide, and
+    // complexity now trips first because the fan-out fields carry multipliers —
+    // which is the stronger rejection: it is the width that would have made
+    // hundreds of requests, not the depth.
     assert!(
         response
             .errors
             .iter()
-            .any(|e| e.message.contains("nested too deep")),
-        "expected the depth limit to be the reason, got {:?}",
+            .any(|e| e.message.contains("nested too deep") || e.message.contains("too complex")),
+        "expected a depth or complexity rejection, got {:?}",
         response.errors
     );
 }
