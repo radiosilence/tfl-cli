@@ -44,9 +44,11 @@ impl JourneyPlan {
         !self.from_options.is_empty() || !self.to_options.is_empty()
     }
 
-    /// Candidate origins, best match first, when `from` was ambiguous.
+    /// Candidate origins when `from` was ambiguous, stations first.
     ///
     /// Re-run the query passing an option's `value` as `from` to resolve it.
+    /// The ordering is only a hint: nothing is filtered out, so choose on the
+    /// fields rather than taking the first.
     async fn from_options(&self) -> &[LocationOption] {
         &self.from_options
     }
@@ -66,11 +68,17 @@ pub struct LocationOption {
     /// Pass this straight back as `from` or `to` to plan against this place.
     ///
     /// Often a `lat,lon` pair rather than an id, which is why it is echoed
-    /// verbatim rather than reconstructed.
+    /// verbatim rather than reconstructed. Guaranteed to be a value the planner
+    /// accepts: where a search matched an interchange hub, which the planner
+    /// rejects, this is the station underneath it instead.
     pub value: Option<String>,
     /// e.g. `NaptanMetroStation`, `PointOfInterest`, `Address`.
     pub place_type: Option<String>,
-    /// TfL's confidence, higher is better. Options are already sorted by it.
+    /// TfL's confidence in the name match, higher is better.
+    ///
+    /// Only a measure of how well the *text* matched, so it rates a restaurant
+    /// named after a station above the station. Weigh it against `isStation`
+    /// rather than on its own.
     pub match_quality: Option<i32>,
     pub lat: Option<f64>,
     pub lon: Option<f64>,
@@ -83,7 +91,11 @@ pub struct LocationOption {
 #[async_graphql::ComplexObject]
 impl LocationOption {
     /// Whether this is a station or stop, as opposed to a shop, hotel or other
-    /// point of interest. Stations are listed first.
+    /// point of interest.
+    ///
+    /// Stations are listed first, but that is a hint and not a decision —
+    /// every candidate TfL offered is returned, so pick whichever the person
+    /// actually meant. They really do sometimes mean the restaurant.
     async fn is_station(&self) -> bool {
         self.is_station
     }
@@ -338,7 +350,6 @@ impl JourneyPlan {
         from: Vec<LocationOption>,
         to: Vec<LocationOption>,
     ) -> Self {
-        const MAX_OPTIONS: usize = 20;
         if !self.from_options.is_empty() {
             self.from_options.extend(from);
             sort_and_truncate(&mut self.from_options, MAX_OPTIONS);
@@ -382,11 +393,12 @@ impl JourneyPlan {
 
 /// Flattens TfL's disambiguation into candidates, best match first.
 ///
-/// Capped because TfL will happily return every address on a street; twenty is
-/// well past the point a caller would read further.
+/// The cap is a guard against TfL returning every address on a street, not an
+/// editorial judgement: choosing between candidates is the caller's job and
+/// dropping one it might have wanted is the one thing this must not do. It sits
+/// far above what TfL returns in practice — around fifteen for a typical
+/// ambiguous name.
 fn options(disambiguation: Option<Disambiguation>) -> Vec<LocationOption> {
-    const MAX_OPTIONS: usize = 20;
-
     let mut options: Vec<LocationOption> = disambiguation
         .map(|d| d.disambiguation_options)
         .unwrap_or_default()
@@ -457,6 +469,9 @@ fn is_transport_place(place_type: Option<&str>) -> bool {
 ///
 /// The point of the journey planner is travel, so a stop that merely matched
 /// less well is still a better guess than a perfectly-matching restaurant.
+/// How many candidates to return before assuming TfL is listing a whole street.
+pub(crate) const MAX_OPTIONS: usize = 50;
+
 pub(crate) fn sort_and_truncate(options: &mut Vec<LocationOption>, max: usize) {
     options.sort_by_key(|o| {
         (
@@ -522,6 +537,31 @@ mod tests {
             "the value must be echoed verbatim so it can be passed back"
         );
         assert!(!plan.to_options[1].is_station);
+    }
+
+    #[test]
+    fn nothing_the_caller_might_want_is_filtered_out() {
+        // Ranking is a hint; choosing is the caller's job. A restaurant that
+        // outscored the station must still be reachable, because sometimes the
+        // restaurant is what was meant.
+        let body = r#"{
+            "toLocationDisambiguation": { "disambiguationOptions": [
+              { "matchQuality": 1000, "parameterValue": "51.5,-0.1",
+                "place": { "commonName": "Kings Cross Tandoori", "placeType": "PointOfInterest" } },
+              { "matchQuality": 900, "parameterValue": "940GZZLUKSX",
+                "place": { "commonName": "King's Cross", "placeType": "NaptanMetroStation" } }
+            ] }
+        }"#;
+
+        let plan = JourneyPlan::from_ambiguous(body);
+        assert_eq!(plan.to_options.len(), 2, "no candidate should be dropped");
+        assert!(plan.to_options[0].is_station, "the station is ranked first");
+        assert!(
+            plan.to_options
+                .iter()
+                .any(|o| o.name.as_deref() == Some("Kings Cross Tandoori")),
+            "the restaurant must still be selectable"
+        );
     }
 
     #[test]
