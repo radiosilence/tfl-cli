@@ -77,14 +77,14 @@ impl Cache {
             return;
         }
         let mut entries = self.entries.lock().unwrap();
-        if entries.len() >= CAPACITY && !entries.contains_key(&key) {
-            if let Some(oldest) = entries
+        if entries.len() >= CAPACITY
+            && !entries.contains_key(&key)
+            && let Some(oldest) = entries
                 .iter()
                 .min_by_key(|(_, e)| e.stored)
                 .map(|(k, _)| k.clone())
-            {
-                entries.remove(&oldest);
-            }
+        {
+            entries.remove(&oldest);
         }
         entries.insert(
             key,

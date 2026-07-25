@@ -50,7 +50,8 @@ fn regen() -> Result<()> {
     }
 
     println!("==> generating");
-    let spec = serde_json::from_slice(&fs::read(&spec_path)?).context("parsing Swagger document")?;
+    let spec =
+        serde_json::from_slice(&fs::read(&spec_path)?).context("parsing Swagger document")?;
     let out = codegen::generate(&spec)?;
 
     let dest = root.join("crates/tfl-api-client/src/generated");
@@ -59,7 +60,11 @@ fn regen() -> Result<()> {
     fs::write(dest.join("endpoints.rs"), out.endpoints)?;
     fs::write(
         dest.join("mod.rs"),
-        "//! Generated from TfL's Swagger document by `cargo xtask regen`. Do not edit.\n\n\
+        "//! Generated from TfL's Swagger document by `cargo xtask regen`. Do not edit.\n\
+         //!\n\
+         //! Lints are off wholesale: this is machine-written and the shape is TfL's,\n\
+         //! not ours. Some journey-planner endpoints really do take fifteen arguments.\n\
+         #![allow(clippy::all, dead_code)]\n\n\
          pub mod endpoints;\npub mod models;\n",
     )?;
 

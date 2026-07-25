@@ -203,7 +203,10 @@ fn emit_models(spec: &Spec, names: &TypeNames) -> Result<String> {
 
 fn rust_type(schema: &Schema, names: &TypeNames) -> Result<String> {
     if let Some(reference) = &schema.reference {
-        return Ok(format!("crate::generated::models::{}", names.rust_name(reference)?));
+        return Ok(format!(
+            "crate::generated::models::{}",
+            names.rust_name(reference)?
+        ));
     }
     let ty = schema.ty.as_deref().unwrap_or("object");
     Ok(match ty {
@@ -367,8 +370,14 @@ fn emit_operation(
     // Locals are underscore-prefixed because TfL has parameters called `query`
     // and `path`; generated identifiers never start with an underscore, so this
     // cannot collide.
-    let _ = writeln!(out, "        let __path = format!(\"{literal}\"{interpolations});");
-    let _ = writeln!(out, "        let mut __query: Vec<(&str, String)> = Vec::new();");
+    let _ = writeln!(
+        out,
+        "        let __path = format!(\"{literal}\"{interpolations});"
+    );
+    let _ = writeln!(
+        out,
+        "        let mut __query: Vec<(&str, String)> = Vec::new();"
+    );
     for p in &required {
         let _ = writeln!(
             out,
@@ -384,7 +393,18 @@ fn emit_operation(
             push_query(p, "value")
         );
     }
-    out.push_str("        self.get(&__path, &__query).await\n    }\n}\n");
+    // List endpoints go through `get_list`, which tolerates TfL answering a
+    // single-id batch request with a bare object instead of a one-element
+    // array.
+    let getter = if returns.starts_with("Vec<") {
+        "get_list"
+    } else {
+        "get"
+    };
+    let _ = writeln!(
+        out,
+        "        self.{getter}(&__path, &__query).await\n    }}\n}}"
+    );
     Ok(out)
 }
 
@@ -393,7 +413,9 @@ fn placeholders(path: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut rest = path;
     while let Some(open) = rest.find('{') {
-        let Some(close) = rest[open..].find('}') else { break };
+        let Some(close) = rest[open..].find('}') else {
+            break;
+        };
         found.push(rest[open + 1..open + close].to_string());
         rest = &rest[open + close + 1..];
     }
@@ -432,7 +454,11 @@ fn param_type(p: &Param, owned: Owned) -> Result<String> {
             _ => "i32".into(),
         },
         "array" => {
-            let inner = p.items.as_ref().and_then(|i| i.ty.as_deref()).unwrap_or("string");
+            let inner = p
+                .items
+                .as_ref()
+                .and_then(|i| i.ty.as_deref())
+                .unwrap_or("string");
             match (inner, owned) {
                 ("string", Owned::Yes) => "Vec<String>".into(),
                 ("string", Owned::No) => "&[&str]".into(),
@@ -456,7 +482,11 @@ fn response_type(op: &Operation, names: &TypeNames) -> Result<String> {
 /// operation ids TfL reuses across two paths (`/StopPoint` and
 /// `/StopPoint/{ids}` are both `StopPoint_Get`) by the path parameters that
 /// actually distinguish them.
-fn unique_method_name(op: &Operation, path_params: &[&Param], taken: &mut BTreeSet<String>) -> String {
+fn unique_method_name(
+    op: &Operation,
+    path_params: &[&Param],
+    taken: &mut BTreeSet<String>,
+) -> String {
     let base = snake(&op.operation_id.replace('_', ""));
     let mut name = base.clone();
     if taken.contains(&name) && !path_params.is_empty() {

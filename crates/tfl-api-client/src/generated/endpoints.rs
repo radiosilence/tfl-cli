@@ -15,7 +15,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::AccidentDetail>> {
         let __path = format!("/AccidentStats/{year}", year = year);
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -38,7 +38,7 @@ impl Client {
     pub async fn bike_point_get_all(&self) -> Result<Vec<crate::generated::models::Place>> {
         let __path = format!("/BikePoint");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -55,7 +55,7 @@ impl Client {
         let __path = format!("/BikePoint/Search");
         let mut __query: Vec<(&str, String)> = Vec::new();
         __query.push(("query", query.to_string()));
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -316,7 +316,7 @@ impl Client {
     pub async fn journey_meta(&self) -> Result<Vec<crate::generated::models::Mode>> {
         let __path = format!("/Journey/Meta/Modes");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -327,7 +327,7 @@ impl Client {
     pub async fn line_meta_disruption_categories(&self) -> Result<Vec<String>> {
         let __path = format!("/Line/Meta/DisruptionCategories");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -338,7 +338,7 @@ impl Client {
     pub async fn line_meta_modes(&self) -> Result<Vec<crate::generated::models::Mode>> {
         let __path = format!("/Line/Meta/Modes");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -349,7 +349,7 @@ impl Client {
     pub async fn line_meta_service_types(&self) -> Result<Vec<String>> {
         let __path = format!("/Line/Meta/ServiceTypes");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -362,7 +362,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::StatusSeverity>> {
         let __path = format!("/Line/Meta/Severity");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -376,7 +376,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::Line>> {
         let __path = format!("/Line/Mode/{modes}", modes = crate::join(modes));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -390,7 +390,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::Disruption>> {
         let __path = format!("/Line/Mode/{modes}/Disruption", modes = crate::join(modes));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -417,7 +417,7 @@ impl Client {
                 __query.push(("serviceTypes", item.to_string()));
             }
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -447,7 +447,7 @@ impl Client {
         if let Some(value) = &options.severity_level {
             __query.push(("severityLevel", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -473,7 +473,7 @@ impl Client {
                 __query.push(("serviceTypes", item.to_string()));
             }
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -522,7 +522,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::Line>> {
         let __path = format!("/Line/Status/{severity}", severity = severity);
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -533,7 +533,7 @@ impl Client {
     pub async fn line_get(&self, ids: &[&str]) -> Result<Vec<crate::generated::models::Line>> {
         let __path = format!("/Line/{ids}", ids = crate::join(ids));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -568,7 +568,7 @@ impl Client {
         if let Some(value) = &options.destination_station_id {
             __query.push(("destinationStationId", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -582,7 +582,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::Disruption>> {
         let __path = format!("/Line/{ids}/Disruption", ids = crate::join(ids));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -609,7 +609,7 @@ impl Client {
                 __query.push(("serviceTypes", item.to_string()));
             }
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -634,7 +634,7 @@ impl Client {
         if let Some(value) = &options.detail {
             __query.push(("detail", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -674,7 +674,7 @@ impl Client {
         if let Some(value) = &options.date_range_end_date {
             __query.push(("dateRange.endDate", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -736,7 +736,7 @@ impl Client {
         if let Some(value) = &options.tfl_operated_national_rail_stations_only {
             __query.push(("tflOperatedNationalRailStationsOnly", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -790,7 +790,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::ActiveServiceType>> {
         let __path = format!("/Mode/ActiveServiceTypes");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -815,7 +815,7 @@ impl Client {
         if let Some(value) = &options.count {
             __query.push(("count", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -829,7 +829,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::BikePointOccupancy>> {
         let __path = format!("/Occupancy/BikePoints/{ids}", ids = crate::join(ids));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -840,7 +840,7 @@ impl Client {
     pub async fn occupancy_get(&self) -> Result<Vec<crate::generated::models::CarParkOccupancy>> {
         let __path = format!("/Occupancy/CarPark");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -867,7 +867,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::ChargeConnectorOccupancy>> {
         let __path = format!("/Occupancy/ChargeConnector");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -881,7 +881,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::ChargeConnectorOccupancy>> {
         let __path = format!("/Occupancy/ChargeConnector/{ids}", ids = crate::join(ids));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -961,7 +961,7 @@ impl Client {
         if let Some(value) = &options.place_geo_lon {
             __query.push(("placeGeo.lon", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1001,7 +1001,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::PlaceCategory>> {
         let __path = format!("/Place/Meta/Categories");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1014,7 +1014,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::PlaceCategory>> {
         let __path = format!("/Place/Meta/PlaceTypes");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1042,7 +1042,7 @@ impl Client {
                 __query.push(("types", item.to_string()));
             }
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1067,7 +1067,7 @@ impl Client {
         if let Some(value) = &options.active_only {
             __query.push(("activeOnly", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1092,7 +1092,7 @@ impl Client {
         if let Some(value) = &options.include_children {
             __query.push(("includeChildren", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1147,7 +1147,7 @@ impl Client {
     pub async fn road_get(&self) -> Result<Vec<crate::generated::models::RoadCorridor>> {
         let __path = format!("/Road");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1158,7 +1158,7 @@ impl Client {
     pub async fn road_meta_categories(&self) -> Result<Vec<String>> {
         let __path = format!("/Road/Meta/Categories");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1171,7 +1171,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::StatusSeverity>> {
         let __path = format!("/Road/Meta/Severities");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1230,7 +1230,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::RoadCorridor>> {
         let __path = format!("/Road/{ids}", ids = crate::join(ids));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1274,7 +1274,7 @@ impl Client {
         if let Some(value) = &options.closures {
             __query.push(("closures", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1302,7 +1302,7 @@ impl Client {
         if let Some(value) = &options.date_range_nullable_end_date {
             __query.push(("dateRangeNullable.endDate", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1344,7 +1344,7 @@ impl Client {
     pub async fn search_meta_categories(&self) -> Result<Vec<String>> {
         let __path = format!("/Search/Meta/Categories");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1355,7 +1355,7 @@ impl Client {
     pub async fn search_meta_search_providers(&self) -> Result<Vec<String>> {
         let __path = format!("/Search/Meta/SearchProviders");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1366,7 +1366,7 @@ impl Client {
     pub async fn search_meta_sorts(&self) -> Result<Vec<String>> {
         let __path = format!("/Search/Meta/Sorts");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1435,7 +1435,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::StopPointCategory>> {
         let __path = format!("/StopPoint/Meta/Categories");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1446,7 +1446,7 @@ impl Client {
     pub async fn stop_point_meta_modes(&self) -> Result<Vec<crate::generated::models::Mode>> {
         let __path = format!("/StopPoint/Meta/Modes");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1457,7 +1457,7 @@ impl Client {
     pub async fn stop_point_meta_stop_types(&self) -> Result<Vec<String>> {
         let __path = format!("/StopPoint/Meta/StopTypes");
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1509,7 +1509,7 @@ impl Client {
         if let Some(value) = &options.include_route_blocked_stops {
             __query.push(("includeRouteBlockedStops", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1655,7 +1655,7 @@ impl Client {
                 __query.push(("modes", item.to_string()));
             }
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1694,7 +1694,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::StopPoint>> {
         let __path = format!("/StopPoint/Type/{types}", types = crate::join(types));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1713,7 +1713,7 @@ impl Client {
             page = page
         );
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1738,7 +1738,7 @@ impl Client {
         if let Some(value) = &options.include_crowding_data {
             __query.push(("includeCrowdingData", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1772,7 +1772,7 @@ impl Client {
         if let Some(value) = &options.flatten_response {
             __query.push(("flattenResponse", value.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1790,7 +1790,7 @@ impl Client {
         for item in line_ids {
             __query.push(("lineIds", item.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1804,7 +1804,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::Prediction>> {
         let __path = format!("/StopPoint/{id}/Arrivals", id = crate::segment(id));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1836,7 +1836,7 @@ impl Client {
                 __query.push(("serviceTypes", item.to_string()));
             }
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1857,7 +1857,7 @@ impl Client {
         );
         let mut __query: Vec<(&str, String)> = Vec::new();
         __query.push(("direction", direction.to_string()));
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1914,7 +1914,7 @@ impl Client {
                 __query.push(("serviceTypes", item.to_string()));
             }
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1932,7 +1932,7 @@ impl Client {
         for item in place_types {
             __query.push(("placeTypes", item.to_string()));
         }
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1949,7 +1949,7 @@ impl Client {
             stop_point_id = crate::segment(stop_point_id)
         );
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -1966,7 +1966,7 @@ impl Client {
             stop_point_id = crate::segment(stop_point_id)
         );
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }
 
@@ -2062,6 +2062,6 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::Prediction>> {
         let __path = format!("/Vehicle/{ids}/Arrivals", ids = crate::join(ids));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        self.get(&__path, &__query).await
+        self.get_list(&__path, &__query).await
     }
 }

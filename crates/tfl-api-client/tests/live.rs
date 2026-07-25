@@ -49,10 +49,7 @@ async fn arrivals_carry_the_foreign_keys_the_graph_is_built_on() {
 #[tokio::test]
 #[ignore = "hits the live TfL API"]
 async fn optional_query_parameters_are_sent() {
-    let options = LineStatusByIdsOptions {
-        detail: Some(true),
-        ..Default::default()
-    };
+    let options = LineStatusByIdsOptions { detail: Some(true) };
     let lines = client()
         .line_status_by_ids(&["victoria"], &options)
         .await

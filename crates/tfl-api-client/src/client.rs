@@ -125,6 +125,9 @@ impl Client {
         }
 
         let url = format!("{}{path}", self.config.base_url);
+        // One line per upstream request, so the batching the DataLoaders do is
+        // observable rather than assumed.
+        tracing::debug!(path, "GET");
         let mut attempt = 0;
         loop {
             let response = self.http.get(&url).query(query).send().await?;
@@ -178,6 +181,39 @@ impl Client {
             tracing::debug!(%status, attempt, ?backoff, path, "retrying TfL request");
             tokio::time::sleep(backoff).await;
             attempt += 1;
+        }
+    }
+}
+
+impl Client {
+    /// Performs a GET for an endpoint the spec says returns a list.
+    ///
+    /// `/StopPoint/{ids}` given exactly one id answers with a bare object
+    /// instead of a one-element array, so decoding straight into a `Vec` fails
+    /// on precisely the request a DataLoader makes when it has one key left
+    /// over. Every list endpoint goes through here rather than only that one:
+    /// the same trap is a plausible response to any of them.
+    pub async fn get_list<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> Result<Vec<T>> {
+        Ok(self.get::<OneOrMany<T>>(path, query).await?.into_vec())
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum OneOrMany<T> {
+    Many(Vec<T>),
+    One(Box<T>),
+}
+
+impl<T> OneOrMany<T> {
+    fn into_vec(self) -> Vec<T> {
+        match self {
+            Self::Many(items) => items,
+            Self::One(item) => vec![*item],
         }
     }
 }

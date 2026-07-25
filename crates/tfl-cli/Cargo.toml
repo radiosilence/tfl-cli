@@ -1,9 +1,12 @@
 [package]
 name = "tfl-cli"
 version = "0.1.0"
+description = "GraphQL server and MCP server for the Transport for London Unified API"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords = ["cli", "tfl", "transport", "graphql", "mcp"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "tfl"
@@ -12,4 +15,27 @@ path = "src/main.rs"
 [dependencies]
 tfl-api-client = { path = "../tfl-api-client" }
 anyhow.workspace = true
+async-graphql = { version = "7", features = ["dataloader"] }
+axum = "0.8"
+askama = "0.16"
+chrono.workspace = true
+clap = { version = "4.5.54", features = ["derive"] }
+clap_complete = "4.5.65"
+futures-util.workspace = true
+http = "1"
+open = "5"
+rmcp = { version = "1", features = [
+  "server",
+  "transport-io",
+  "transport-streamable-http-server",
+] }
+schemars = "1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+
+[dev-dependencies]
+wiremock = "0.6"
