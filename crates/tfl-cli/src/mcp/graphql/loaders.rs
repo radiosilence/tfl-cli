@@ -15,6 +15,8 @@
 //! | [`ArrivalsLoader`] | `/StopPoint/{id}/Arrivals` | deduplicates repeated stops; TfL cannot batch this one |
 //! | [`LineStopPointsLoader`] | `/Line/{id}/StopPoints` | ditto per line |
 //! | [`DisruptionLoader`] | `/Line/{ids}/Disruption` | all disruption edges in one request |
+//! | [`BikeOccupancyLoader`] | `/Occupancy/BikePoints/{ids}` | every docking station's live counts in one request |
+//! | [`BikePointsLoader`] | `/BikePoint` | the whole set, fetched once per query |
 //!
 //! Loaders are built per request, so nothing survives between queries: transit
 //! data goes stale in seconds and a cache that outlived the request would serve
@@ -41,6 +43,8 @@ pub struct Loaders {
     pub arrivals: DataLoader<ArrivalsLoader, HashMapCache>,
     pub line_stop_points: DataLoader<LineStopPointsLoader, HashMapCache>,
     pub disruption: DataLoader<DisruptionLoader, HashMapCache>,
+    pub bike_occupancy: DataLoader<BikeOccupancyLoader, HashMapCache>,
+    pub bike_points: DataLoader<BikePointsLoader, HashMapCache>,
 }
 
 impl Loaders {
@@ -71,8 +75,17 @@ impl Loaders {
                 spawn,
                 cache(),
             ),
-            disruption: DataLoader::with_cache(DisruptionLoader(client), spawn, cache())
+            disruption: DataLoader::with_cache(DisruptionLoader(client.clone()), spawn, cache())
                 .max_batch_size(MAX_IDS),
+            bike_occupancy: DataLoader::with_cache(
+                BikeOccupancyLoader(client.clone()),
+                spawn,
+                cache(),
+            )
+            .max_batch_size(MAX_IDS),
+            // Keyed by `()`: TfL has no way to ask for a subset, so the only
+            // thing to batch is the whole set, once.
+            bike_points: DataLoader::with_cache(BikePointsLoader(client), spawn, cache()),
         }
     }
 }
@@ -271,5 +284,40 @@ fn collect_per_key<T>(
     match first_error {
         Some(error) if loaded.is_empty() => Err(Arc::new(error)),
         _ => Ok(loaded),
+    }
+}
+
+/// Loads live docking-station counts — `/Occupancy/BikePoints/{ids}`.
+pub struct BikeOccupancyLoader(Arc<Client>);
+
+impl Loader<String> for BikeOccupancyLoader {
+    type Value = models::BikePointOccupancy;
+    type Error = LoadError;
+
+    async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
+        let occupancies = load_batch(keys, |ids| async move {
+            let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+            self.0.occupancy_get_bike_points_occupancies(&refs).await
+        })
+        .await?;
+        Ok(key_by(occupancies, |o| o.id.clone()))
+    }
+}
+
+/// Loads every docking station — `/BikePoint`.
+///
+/// Keyed by `()` because TfL offers no filter: there is one request to make and
+/// the loader exists so a query mentioning bike points twice makes it once. The
+/// response is around 800 stations, which is why nothing else fetches it
+/// speculatively.
+pub struct BikePointsLoader(Arc<Client>);
+
+impl Loader<()> for BikePointsLoader {
+    type Value = Vec<models::Place>;
+    type Error = LoadError;
+
+    async fn load(&self, _keys: &[()]) -> Result<HashMap<(), Self::Value>, Self::Error> {
+        let points = self.0.bike_point_get_all().await.map_err(Arc::new)?;
+        Ok(HashMap::from([((), points)]))
     }
 }

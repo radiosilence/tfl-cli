@@ -26,6 +26,10 @@ fn every_entry_point_is_present() {
         "vehicleArrivals(",
         "modes:",
         "severities:",
+        "journey(",
+        "bikePoint(",
+        "bikePointsNear(",
+        "searchBikePoints(",
     ] {
         assert!(sdl.contains(field), "QueryRoot is missing `{field}`\n{sdl}");
     }
@@ -78,6 +82,35 @@ fn costs_are_documented_in_the_sdl() {
     assert!(
         sdl.contains("stale"),
         "arrivals should warn that they are live data"
+    );
+}
+
+#[test]
+fn bike_counts_are_typed_fields_not_a_property_bag() {
+    // The whole point of the bike type: TfL ships `NbEBikes=1` as a string in
+    // an untyped bag, which nothing can usefully query.
+    let sdl = sdl_text();
+    for field in [
+        "bikes: Int",
+        "eBikes: Int",
+        "emptyDocks: Int",
+        "hasBikes: Boolean!",
+    ] {
+        assert!(sdl.contains(field), "BikePoint is missing `{field}`\n{sdl}");
+    }
+}
+
+#[test]
+fn journey_planning_exposes_the_ambiguous_case() {
+    // TfL answers an ambiguous location with 300 rather than routes. If that
+    // is not reachable from the schema, asking for a journey between two place
+    // names is a dead end.
+    let sdl = sdl_text();
+    assert!(sdl.contains("isAmbiguous: Boolean!"));
+    assert!(sdl.contains("fromOptions: [LocationOption!]!"));
+    assert!(
+        sdl.contains("isStation: Boolean!"),
+        "callers need to tell a station from a restaurant of the same name"
     );
 }
 

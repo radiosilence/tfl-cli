@@ -37,6 +37,35 @@ requests**, where the naive walk is 81. That matters more than it sounds —
 anonymous callers get 50 requests/minute, so the naive version exhausts the
 budget inside a single question.
 
+## Journeys and bikes
+
+`journey(from: "Kings Cross", to: "Brixton")` takes whatever you have — a name,
+a NaPTAN id, a postcode, a `lat,lon` pair — and returns routes with legs, times,
+changes and fares.
+
+Names are the normal case and TfL handles them badly. Anything ambiguous comes
+back as `300 Multiple Choices`, and for "kings cross" its candidates are eleven
+points of interest and four bus stops — Kings Cross Tandoori, the Comfort Inn —
+with no King's Cross station among them. So the ambiguous case also searches
+stop points for the same term and ranks stations first, then swaps interchange
+hubs for a child the planner will actually accept (`HUBKGX` is rejected;
+`940GZZLUKSX` is not). Without that, the obvious request is unanswerable from
+the options given.
+
+Bike points arrive as a generic place with the interesting part stringly-typed
+in a property bag — `NbBikes=4`, `NbEBikes=1`. Those become real fields, so
+"is there an e-bike near me" is a query rather than a parsing exercise:
+
+```graphql
+{ bikePointsNear(lat: 51.5292, lon: -0.1099, radius: 400) {
+    commonName distance bikes eBikes emptyDocks } }
+```
+
+TfL offers no geographic filter for bike points, so the ~800 stations are
+fetched once per query and measured locally. `bikePointsNear` defaults to
+stations that actually have a bike; pass `withDocks: true` when you are
+returning one instead.
+
 ## Layout
 
 | | |

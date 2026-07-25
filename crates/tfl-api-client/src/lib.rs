@@ -31,6 +31,14 @@ pub enum Error {
     #[error("rate limited by TfL{}", .retry_after.map(|s| format!(", retry after {s}s")).unwrap_or_default())]
     RateLimited { retry_after: Option<u64> },
 
+    /// TfL answers an ambiguous journey-planner location with `300 Multiple
+    /// Choices` and a body listing the candidates. That is a useful answer
+    /// rather than a failure — anyone asking for a journey between place
+    /// *names* will hit it — so the body is kept whole for the caller to
+    /// decode, not truncated like a genuine error.
+    #[error("{path} is ambiguous; TfL returned candidate locations")]
+    Ambiguous { path: String, body: String },
+
     #[error("{status} from {path}: {body}")]
     Status {
         status: reqwest::StatusCode,

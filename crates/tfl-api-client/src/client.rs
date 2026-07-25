@@ -154,6 +154,15 @@ impl Client {
                 .and_then(|v| v.parse::<u64>().ok());
             let body = response.text().await.unwrap_or_default();
 
+            // 300 Multiple Choices is the journey planner asking which
+            // "Victoria" you meant. Not an error, and not retryable.
+            if status == reqwest::StatusCode::MULTIPLE_CHOICES {
+                return Err(Error::Ambiguous {
+                    path: path.to_string(),
+                    body,
+                });
+            }
+
             // TfL reports a bad key as 429 with a distinctive body. Retrying
             // that just burns the rate limit on a request that can never work.
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS

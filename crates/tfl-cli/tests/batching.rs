@@ -259,3 +259,72 @@ async fn one_unknown_id_does_not_take_the_batch_down_with_it() {
     assert_eq!(stops.len(), 1, "only the known stop should be returned");
     assert_eq!(stops[0]["commonName"], "Real Station");
 }
+
+#[tokio::test]
+async fn bike_points_are_fetched_once_and_occupancy_batched() {
+    // TfL has no geographic filter for bike points, so the whole set is
+    // fetched and measured locally. That is one request however many stations
+    // a query touches — and the occupancy edge across all of them is one more.
+    let server = MockServer::start().await;
+
+    let stations: serde_json::Value = (1..=3)
+        .map(|i| {
+            serde_json::json!({
+                "id": format!("BikePoints_{i}"),
+                "commonName": format!("Station {i}"),
+                "lat": 51.529 + (i as f64) * 0.0001,
+                "lon": -0.109,
+                "additionalProperties": [
+                    { "key": "NbBikes", "value": "4" },
+                    { "key": "NbEmptyDocks", "value": "13" },
+                ],
+            })
+        })
+        .collect();
+
+    Mock::given(method("GET"))
+        .and(path("/BikePoint"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(stations))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/Occupancy/BikePoints/.+$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            { "id": "BikePoints_1", "bikesCount": 4, "emptyDocks": 13 },
+            { "id": "BikePoints_2", "bikesCount": 4, "emptyDocks": 13 },
+            { "id": "BikePoints_3", "bikesCount": 4, "emptyDocks": 13 },
+        ])))
+        .mount(&server)
+        .await;
+
+    run(
+        &server,
+        r#"{ bikePointsNear(lat: 51.529, lon: -0.109, radius: 1000) {
+               commonName bikes occupancy { bikes }
+             } }"#,
+    )
+    .await;
+
+    let paths = paths(&server).await;
+    assert_eq!(
+        paths.iter().filter(|p| *p == "/BikePoint").count(),
+        1,
+        "the station set should be fetched once, got:\n{paths:#?}"
+    );
+    let occupancy: Vec<&String> = paths
+        .iter()
+        .filter(|p| p.starts_with("/Occupancy/"))
+        .collect();
+    assert_eq!(
+        occupancy.len(),
+        1,
+        "occupancy for every station should share one request, got:\n{paths:#?}"
+    );
+    assert_eq!(
+        occupancy[0].matches("BikePoints_").count(),
+        3,
+        "all three ids belong in the one path, got {}",
+        occupancy[0]
+    );
+}

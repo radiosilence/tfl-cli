@@ -12,6 +12,11 @@
   GraphQL and GraphiQL are available on the same listener.
 - `tfl-api-client`, generated from TfL's Swagger document by `cargo xtask regen`.
 - CLI: `arrivals`, `status`, `search`, `query`, `schema`, `mcp`, `completions`.
+- Journey planning: `journey(from:, to:)` with legs, changes, fares, obstacles
+  and accessibility preferences. Handles TfL's `300 Multiple Choices` by
+  returning candidate locations rather than failing.
+- Santander Cycles: `bikePoint`, `bikePointsNear`, `searchBikePoints`, with
+  TfL's property bag parsed into typed counts and a batched occupancy edge.
 
 ### Notes
 

@@ -5,6 +5,8 @@
 //! how those records join up. That joining is the whole product, so it lives
 //! here rather than being derived from a spec that does not know about it.
 
+pub mod bike;
+pub mod journey;
 pub mod loaders;
 pub mod query;
 #[cfg(test)]
