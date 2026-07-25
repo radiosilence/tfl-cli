@@ -66,6 +66,87 @@ fetched once per query and measured locally. `bikePointsNear` defaults to
 stations that actually have a bike; pass `withDocks: true` when you are
 returning one instead.
 
+## What it can answer
+
+The point of joining everything into one graph is compound questions — the ones
+that would otherwise be four API calls and a spreadsheet.
+
+**"Should I cycle or take the tube?"** — line status, air quality and bike
+availability in one query:
+
+```graphql
+{ line(id: "victoria") { isGoodService statuses { description reason } }
+  airQuality { current { band nitrogenDioxide } }
+  bikePointsNear(lat: 51.5292, lon: -0.1099, radius: 400) {
+    commonName distance eBikes emptyDocks } }
+```
+
+**"How do I get there, and is anything in the way?"** — a journey whose legs
+carry their own disruptions:
+
+```graphql
+{ journey(from: "Kings Cross", to: "Brixton", preference: "LeastWalking") {
+    journeys { duration changes fare { totalCost }
+      legs { mode duration summary isDisrupted
+             disruptions { description } } } } }
+```
+
+**"Step-free, please."** — accessibility is a first-class argument, and legs
+report the stairs they know about:
+
+```graphql
+{ journey(from: "940GZZLUKSX", to: "940GZZLUBXN",
+          accessibility: ["stepFreeToPlatform", "noSolidStairs"]) {
+    journeys { duration legs { mode summary
+      obstacles { kind incline position } } } } }
+```
+
+**"Is this junction dangerous?"** — 2019 casualty records, filtered to a radius:
+
+```graphql
+{ accidents(lat: 51.5152, lon: -0.1418, radius: 200,
+            severities: ["Fatal", "Serious"]) {
+    date location severity distance
+    casualties { class mode severity } vehicles } }
+```
+
+**"The tube's stopped, get me home."** — disrupted lines, then a fallback:
+
+```graphql
+{ disruptedLines { name statuses { description reason } }
+  taxiOperators(lat: 51.5033, lon: -0.1145, openTwentyFourHours: true) {
+    name phone } }
+```
+
+**"Why is the traffic like this?"** — road disruptions, worst first, each
+resolving the corridors it blocks:
+
+```graphql
+{ roadDisruptions(severities: ["Serious", "Severe"], first: 5) {
+    severity category location currentUpdate hasClosures
+    roads { displayName status } } }
+```
+
+## Coverage
+
+Every domain in TfL's spec, bar one:
+
+| | |
+|---|---|
+| StopPoint, Line, Prediction | arrivals, status, disruptions, routes, search, geo |
+| Journey | planning, legs, fares, obstacles, accessibility, disambiguation |
+| BikePoint, Occupancy | Santander Cycles, EV charge connectors, car parks |
+| Road | corridors, disruptions, closures |
+| AirQuality, Cabwise, AccidentStats | forecasts, licensed operators, casualty history |
+
+**TravelTime is deliberately absent.** It returns map tile images, which mean
+nothing over a text protocol.
+
+Two things TfL does badly that are worth knowing: `/Occupancy/CarPark` returns
+a 500 more often than not — an error there is theirs — and `AccidentStats` only
+has 2019, downloads thirty-seven megabytes with no server-side filter, and so is
+filtered here after the fact. That field says as much in its own description.
+
 ## Layout
 
 | | |

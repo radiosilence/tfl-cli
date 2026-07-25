@@ -23,7 +23,7 @@ impl Client {
     /// Gets air quality data feed
     ///
     /// `GET /AirQuality`
-    pub async fn air_quality_get(&self) -> Result<crate::generated::models::Object> {
+    pub async fn air_quality_get(&self) -> Result<serde_json::Value> {
         let __path = format!("/AirQuality");
         let mut __query: Vec<(&str, String)> = Vec::new();
         self.get(&__path, &__query).await
@@ -100,7 +100,7 @@ impl Client {
         lat: f64,
         lon: f64,
         options: &CabwiseGetOptions,
-    ) -> Result<crate::generated::models::Object> {
+    ) -> Result<serde_json::Value> {
         let __path = format!("/Cabwise/search");
         let mut __query: Vec<(&str, String)> = Vec::new();
         __query.push(("lat", lat.to_string()));
@@ -979,7 +979,7 @@ impl Client {
         &self,
         postcode: &str,
         options: &PlaceGetStreetsByPostCodeOptions,
-    ) -> Result<crate::generated::models::Object> {
+    ) -> Result<serde_json::Value> {
         let __path = format!(
             "/Place/Address/Streets/{postcode}",
             postcode = crate::segment(postcode)
@@ -1108,7 +1108,7 @@ impl Client {
         lon: &str,
         location_lat: f64,
         location_lon: f64,
-    ) -> Result<crate::generated::models::Object> {
+    ) -> Result<serde_json::Value> {
         let __path = format!("/Place/{type}/At/{lat}/{lon}", type = crate::join(r#type), lat = crate::segment(lat), lon = crate::segment(lon));
         let mut __query: Vec<(&str, String)> = Vec::new();
         __query.push(("location.lat", location_lat.to_string()));
@@ -1131,7 +1131,7 @@ impl Client {
         height: i32,
         location_lat: f64,
         location_lon: f64,
-    ) -> Result<crate::generated::models::Object> {
+    ) -> Result<serde_json::Value> {
         let __path = format!("/Place/{type}/overlay/{z}/{lat}/{lon}/{width}/{height}", type = crate::join(r#type), z = z, lat = crate::segment(lat), lon = crate::segment(lon), width = width, height = height);
         let mut __query: Vec<(&str, String)> = Vec::new();
         __query.push(("location.lat", location_lat.to_string()));
@@ -1211,7 +1211,7 @@ impl Client {
         &self,
         start_date: &str,
         end_date: &str,
-    ) -> Result<crate::generated::models::Object> {
+    ) -> Result<serde_json::Value> {
         let __path = format!("/Road/all/Street/Disruption");
         let mut __query: Vec<(&str, String)> = Vec::new();
         __query.push(("startDate", start_date.to_string()));
@@ -1674,7 +1674,7 @@ impl Client {
         &self,
         id: &str,
         options: &StopPointGetBySmsOptions,
-    ) -> Result<crate::generated::models::Object> {
+    ) -> Result<serde_json::Value> {
         let __path = format!("/StopPoint/Sms/{id}", id = crate::segment(id));
         let mut __query: Vec<(&str, String)> = Vec::new();
         if let Some(value) = &options.output {
@@ -1990,7 +1990,7 @@ impl Client {
         travel_time_interval: i32,
         compare_type: &str,
         compare_value: &str,
-    ) -> Result<crate::generated::models::Object> {
+    ) -> Result<serde_json::Value> {
         let __path = format!(
             "/TravelTimes/compareOverlay/{z}/mapcenter/{map_center_lat}/{map_center_lon}/pinlocation/{pin_lat}/{pin_lon}/dimensions/{width}/{height}",
             z = z,
@@ -2031,7 +2031,7 @@ impl Client {
         mode_id: &str,
         direction: &str,
         travel_time_interval: i32,
-    ) -> Result<crate::generated::models::Object> {
+    ) -> Result<serde_json::Value> {
         let __path = format!(
             "/TravelTimes/overlay/{z}/mapcenter/{map_center_lat}/{map_center_lon}/pinlocation/{pin_lat}/{pin_lon}/dimensions/{width}/{height}",
             z = z,

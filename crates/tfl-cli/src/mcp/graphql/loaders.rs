@@ -17,6 +17,10 @@
 //! | [`DisruptionLoader`] | `/Line/{ids}/Disruption` | all disruption edges in one request |
 //! | [`BikeOccupancyLoader`] | `/Occupancy/BikePoints/{ids}` | every docking station's live counts in one request |
 //! | [`BikePointsLoader`] | `/BikePoint` | the whole set, fetched once per query |
+//! | [`RoadLoader`] | `/Road/{ids}` | every corridor a disruption names, in one request |
+//! | [`RoadDisruptionLoader`] | `/Road/{ids}/Disruption` | ditto per road |
+//! | [`ChargeConnectorLoader`] | `/Occupancy/ChargeConnector/{ids}` | every connector's status in one request |
+//! | [`AccidentsLoader`] | `/AccidentStats/{year}` | a 37MB year downloaded once, not per field |
 //!
 //! Loaders are built per request, so nothing survives between queries: transit
 //! data goes stale in seconds and a cache that outlived the request would serve
@@ -45,6 +49,10 @@ pub struct Loaders {
     pub disruption: DataLoader<DisruptionLoader, HashMapCache>,
     pub bike_occupancy: DataLoader<BikeOccupancyLoader, HashMapCache>,
     pub bike_points: DataLoader<BikePointsLoader, HashMapCache>,
+    pub road: DataLoader<RoadLoader, HashMapCache>,
+    pub road_disruption: DataLoader<RoadDisruptionLoader, HashMapCache>,
+    pub charge_connector: DataLoader<ChargeConnectorLoader, HashMapCache>,
+    pub accidents: DataLoader<AccidentsLoader, HashMapCache>,
 }
 
 impl Loaders {
@@ -85,7 +93,22 @@ impl Loaders {
             .max_batch_size(MAX_IDS),
             // Keyed by `()`: TfL has no way to ask for a subset, so the only
             // thing to batch is the whole set, once.
-            bike_points: DataLoader::with_cache(BikePointsLoader(client), spawn, cache()),
+            bike_points: DataLoader::with_cache(BikePointsLoader(client.clone()), spawn, cache()),
+            road: DataLoader::with_cache(RoadLoader(client.clone()), spawn, cache())
+                .max_batch_size(MAX_IDS),
+            road_disruption: DataLoader::with_cache(
+                RoadDisruptionLoader(client.clone()),
+                spawn,
+                cache(),
+            )
+            .max_batch_size(MAX_IDS),
+            charge_connector: DataLoader::with_cache(
+                ChargeConnectorLoader(client.clone()),
+                spawn,
+                cache(),
+            )
+            .max_batch_size(MAX_IDS),
+            accidents: DataLoader::with_cache(AccidentsLoader(client), spawn, cache()),
         }
     }
 }
@@ -265,9 +288,9 @@ fn key_by<T>(items: Vec<T>, key: impl Fn(&T) -> Option<String>) -> HashMap<Strin
 /// Collects per-key results, failing only if every request failed.
 ///
 /// One stop with no arrivals should not blank out the rest of the query.
-fn collect_per_key<T>(
-    results: Vec<(String, Result<T, Error>)>,
-) -> Result<HashMap<String, T>, LoadError> {
+fn collect_per_key<K: std::hash::Hash + Eq + std::fmt::Debug, T>(
+    results: Vec<(K, Result<T, Error>)>,
+) -> Result<HashMap<K, T>, LoadError> {
     let mut first_error = None;
     let mut loaded = HashMap::new();
     for (key, result) in results {
@@ -276,7 +299,7 @@ fn collect_per_key<T>(
                 loaded.insert(key, value);
             }
             Err(error) => {
-                tracing::debug!(%error, key, "request failed within a batch");
+                tracing::debug!(%error, ?key, "request failed within a batch");
                 first_error.get_or_insert(error);
             }
         }
@@ -319,5 +342,96 @@ impl Loader<()> for BikePointsLoader {
     async fn load(&self, _keys: &[()]) -> Result<HashMap<(), Self::Value>, Self::Error> {
         let points = self.0.bike_point_get_all().await.map_err(Arc::new)?;
         Ok(HashMap::from([((), points)]))
+    }
+}
+
+/// Loads road corridors by id — `/Road/{ids}`.
+pub struct RoadLoader(Arc<Client>);
+
+impl Loader<String> for RoadLoader {
+    type Value = models::RoadCorridor;
+    type Error = LoadError;
+
+    async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
+        let roads = load_batch(keys, |ids| async move {
+            let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+            self.0.road_get_by_ids(&refs).await
+        })
+        .await?;
+        // TfL answers lower-case ids but echoes them capitalised as often as
+        // not, so both spellings are indexed rather than trusting either.
+        let mut by_id = HashMap::new();
+        for road in roads {
+            for id in [road.id.clone(), road.display_name.clone()]
+                .into_iter()
+                .flatten()
+            {
+                by_id
+                    .entry(id.to_lowercase())
+                    .or_insert_with(|| road.clone());
+            }
+        }
+        Ok(keys
+            .iter()
+            .filter_map(|key| Some((key.clone(), by_id.get(&key.to_lowercase())?.clone())))
+            .collect())
+    }
+}
+
+/// Loads disruptions on a road — `/Road/{ids}/Disruption`.
+///
+/// One request per road rather than one batched call: the response does not say
+/// which road each disruption came from beyond `corridorIds`, which lists every
+/// road it touches, so batching would lose the association the caller asked
+/// about.
+pub struct RoadDisruptionLoader(Arc<Client>);
+
+impl Loader<String> for RoadDisruptionLoader {
+    type Value = Vec<models::RoadDisruption>;
+    type Error = LoadError;
+
+    async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
+        let requests = keys.iter().map(async |id| {
+            let disruptions = self.0.road_disruption(&[id], &Default::default()).await;
+            (id.clone(), disruptions)
+        });
+        collect_per_key(futures_util::future::join_all(requests).await)
+    }
+}
+
+/// Loads charge-connector status — `/Occupancy/ChargeConnector/{ids}`.
+pub struct ChargeConnectorLoader(Arc<Client>);
+
+impl Loader<String> for ChargeConnectorLoader {
+    type Value = models::ChargeConnectorOccupancy;
+    type Error = LoadError;
+
+    async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
+        let connectors = load_batch(keys, |ids| async move {
+            let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+            self.0.occupancy_get_charge_connector_status(&refs).await
+        })
+        .await?;
+        Ok(key_by(connectors, |c| c.id.map(|id| id.to_string())))
+    }
+}
+
+/// Loads a year of road casualty data — `/AccidentStats/{year}`.
+///
+/// Keyed by year because that is the only thing TfL lets you choose. The
+/// response is around thirty-seven megabytes, so the loader exists to make
+/// certain a query asking about accidents twice downloads it once.
+pub struct AccidentsLoader(Arc<Client>);
+
+impl Loader<i32> for AccidentsLoader {
+    type Value = Vec<models::AccidentDetail>;
+    type Error = LoadError;
+
+    async fn load(&self, keys: &[i32]) -> Result<HashMap<i32, Self::Value>, Self::Error> {
+        let requests = keys.iter().map(async |year| {
+            let accidents = self.0.accident_stats_get(*year).await;
+            (*year, accidents)
+        });
+        collect_per_key(futures_util::future::join_all(requests).await)
     }
 }

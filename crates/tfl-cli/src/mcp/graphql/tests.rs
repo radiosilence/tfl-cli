@@ -30,6 +30,14 @@ fn every_entry_point_is_present() {
         "bikePoint(",
         "bikePointsNear(",
         "searchBikePoints(",
+        "roads:",
+        "road(",
+        "roadDisruptions(",
+        "airQuality:",
+        "taxiOperators(",
+        "chargeConnectors(",
+        "carParks:",
+        "accidents(",
     ] {
         assert!(sdl.contains(field), "QueryRoot is missing `{field}`\n{sdl}");
     }
@@ -112,6 +120,50 @@ fn journey_planning_exposes_the_ambiguous_case() {
         sdl.contains("isStation: Boolean!"),
         "callers need to tell a station from a restaurant of the same name"
     );
+}
+
+#[test]
+fn expensive_fields_say_so() {
+    // A caller cannot see a download size, so the one field that costs tens of
+    // megabytes has to admit it in the only place they will look.
+    let sdl = sdl_text();
+    let accidents = sdl
+        .split("accidents(")
+        .next()
+        .expect("accidents field should exist");
+    assert!(
+        accidents.contains("expensive") && accidents.contains("2019"),
+        "the accidents field must warn about its cost and that only 2019 has data"
+    );
+}
+
+#[test]
+fn every_domain_tfl_documents_is_reachable() {
+    // TfL's spec covers 15 tags. TravelTime is deliberately absent — it returns
+    // map tile images, which mean nothing over this transport.
+    let sdl = sdl_text();
+    for domain in [
+        "StopPoint",
+        "Line",
+        "Prediction",
+        "JourneyPlan",
+        "BikePoint",
+        "Road",
+        "RoadDisruption",
+        "AirQuality",
+        "TaxiOperator",
+        "ChargeConnector",
+        "CarPark",
+        "Accident",
+        "Mode",
+        "Disruption",
+        "LineStatus",
+    ] {
+        assert!(
+            sdl.contains(&format!("type {domain} ")),
+            "no `type {domain}` in the schema"
+        );
+    }
 }
 
 #[test]

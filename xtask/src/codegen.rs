@@ -87,7 +87,7 @@ pub struct Generated {
 }
 
 pub fn generate(spec: &Spec) -> Result<Generated> {
-    let names = TypeNames::resolve(spec.definitions.keys());
+    let names = TypeNames::resolve(&spec.definitions);
     let models = emit_models(spec, &names)?;
     let (endpoints, endpoint_count) = emit_endpoints(spec, &names)?;
     Ok(Generated {
@@ -105,11 +105,23 @@ pub fn generate(spec: &Spec) -> Result<Generated> {
 /// usually what you want, but it collides — there is both a `Fares.Journey` and
 /// a `JourneyPlanner.Journey` — so colliding names absorb the segment above
 /// them until they are distinct.
-struct TypeNames(HashMap<String, String>);
+struct TypeNames {
+    rust: HashMap<String, String>,
+    /// Definitions with no properties at all — TfL's `System.Object`, and
+    /// anything else the spec declines to describe. A `$ref` to one of these
+    /// decodes as raw JSON: an empty struct would parse successfully and throw
+    /// the entire payload away, which is the worst of both.
+    opaque: BTreeSet<String>,
+}
 
 impl TypeNames {
-    fn resolve<'a>(keys: impl Iterator<Item = &'a String>) -> Self {
-        let keys: Vec<&str> = keys.map(String::as_str).collect();
+    fn resolve(definitions: &BTreeMap<String, Definition>) -> Self {
+        let opaque: BTreeSet<String> = definitions
+            .iter()
+            .filter(|(_, d)| d.properties.is_empty())
+            .map(|(k, _)| k.clone())
+            .collect();
+        let keys: Vec<&str> = definitions.keys().map(String::as_str).collect();
         let mut depth: HashMap<&str, usize> = keys.iter().map(|k| (*k, 1)).collect();
 
         // Widen any name that more than one key claims, until all are unique.
@@ -132,19 +144,26 @@ impl TypeNames {
             }
         }
 
-        Self(
-            keys.iter()
+        Self {
+            rust: keys
+                .iter()
                 .map(|k| ((*k).to_string(), pascal(&tail(k, depth[k]))))
                 .collect(),
-        )
+            opaque,
+        }
     }
 
     fn rust_name(&self, reference: &str) -> Result<&str> {
         let key = reference.trim_start_matches("#/definitions/");
-        self.0
+        self.rust
             .get(key)
             .map(String::as_str)
             .with_context(|| format!("unknown $ref `{reference}`"))
+    }
+
+    fn is_opaque(&self, reference: &str) -> bool {
+        self.opaque
+            .contains(reference.trim_start_matches("#/definitions/"))
     }
 }
 
@@ -203,6 +222,9 @@ fn emit_models(spec: &Spec, names: &TypeNames) -> Result<String> {
 
 fn rust_type(schema: &Schema, names: &TypeNames) -> Result<String> {
     if let Some(reference) = &schema.reference {
+        if names.is_opaque(reference) {
+            return Ok("serde_json::Value".into());
+        }
         return Ok(format!(
             "crate::generated::models::{}",
             names.rust_name(reference)?

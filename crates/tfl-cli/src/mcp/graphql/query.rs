@@ -15,8 +15,11 @@ use tfl_api_client::{
 
 use super::{
     bike::{BikePoint, distance_metres},
+    environment::{AirQuality, AirQualityBody, CabwiseBody, TaxiOperator},
     journey::JourneyPlan,
     loaders::{loaders, to_gql_error},
+    places::{Accident, CarPark, ChargeConnector},
+    road::{Road, RoadDisruption},
     types::{Line, Mode, Prediction, StopPoint},
 };
 
@@ -408,6 +411,198 @@ impl QueryRoot {
         Ok(places.into_iter().map(BikePoint::new).collect())
     }
 
+    /// Every road corridor TfL manages, with current status. One request.
+    ///
+    /// Twenty-four of them — the A406, the A2 and so on — so this is the whole
+    /// list rather than a page of it.
+    async fn roads(&self, ctx: &Context<'_>) -> Result<Vec<Road>> {
+        let roads = client(ctx).road_get().await.map_err(to_gql_error)?;
+        Ok(roads.into_iter().map(Road).collect())
+    }
+
+    /// A road corridor by id, e.g. `a406`.
+    async fn road(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Road id, e.g. \"a406\" or \"a2\". Case-insensitive.")] id: String,
+    ) -> Result<Option<Road>> {
+        Ok(loaders(ctx)
+            .road
+            .load_one(id)
+            .await
+            .map_err(to_gql_error)?
+            .map(Road))
+    }
+
+    /// Everything currently disrupting London's roads.
+    ///
+    /// The direct answer to "why is the traffic bad". One request; around a
+    /// hundred live at any time, so filter by severity or ask for `first`
+    /// unless you want all of them.
+    async fn road_disruptions(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Restrict to these severities, e.g. [\"Serious\", \"Severe\"].")]
+        severities: Option<Vec<String>>,
+        #[graphql(desc = "Only disruptions closing a road, rather than merely slowing it.")]
+        closures_only: Option<bool>,
+        #[graphql(desc = "How many to return, most severe first.")] first: Option<usize>,
+    ) -> Result<Vec<RoadDisruption>> {
+        let severities = severities.unwrap_or_default();
+        let options = tfl_api_client::RoadDisruptionOptions {
+            // TfL embeds HTML in the descriptions unless asked not to.
+            strip_content: Some(true),
+            severities: (!severities.is_empty()).then(|| severities.clone()),
+            closures: closures_only,
+            ..Default::default()
+        };
+        let mut disruptions = client(ctx)
+            .road_disruption(&["all"], &options)
+            .await
+            .map_err(to_gql_error)?;
+
+        // Worst first: TfL returns them in no useful order, and a caller taking
+        // `first` should get the ones that matter.
+        disruptions.sort_by_key(|d| severity_rank(d.severity.as_deref()));
+        disruptions.truncate(first.unwrap_or(usize::MAX));
+        Ok(disruptions.into_iter().map(RoadDisruption).collect())
+    }
+
+    /// London's air quality forecast. One request.
+    ///
+    /// Bands are `Low`, `Moderate`, `High` or `Very High`. Worth pairing with a
+    /// cycling or walking journey — `current { band nitrogenDioxide }` answers
+    /// "is it a good day to cycle".
+    async fn air_quality(&self, ctx: &Context<'_>) -> Result<AirQuality> {
+        let raw = client(ctx).air_quality_get().await.map_err(to_gql_error)?;
+        // The spec types this endpoint as an untyped object, so the shape is
+        // ours to assert; a change upstream degrades to empty rather than
+        // failing the query.
+        let body: AirQualityBody = serde_json::from_value(raw).unwrap_or_default();
+        Ok(AirQuality(body))
+    }
+
+    /// Licensed minicab and taxi operators near a coordinate, nearest first.
+    ///
+    /// For when the tube has stopped running. One request.
+    async fn taxi_operators(
+        &self,
+        ctx: &Context<'_>,
+        lat: f64,
+        lon: f64,
+        #[graphql(desc = "How many to return. Defaults to 10, TfL's maximum is 20.")] first: Option<
+            i32,
+        >,
+        #[graphql(desc = "Only operators that can carry a wheelchair.")]
+        wheelchair_accessible: Option<bool>,
+        #[graphql(desc = "Only operators taking bookings around the clock.")]
+        open_twenty_four_hours: Option<bool>,
+    ) -> Result<Vec<TaxiOperator>> {
+        let options = tfl_api_client::CabwiseGetOptions {
+            max_results: Some(first.unwrap_or(10).clamp(1, 20)),
+            wc: wheelchair_accessible.map(|w| w.to_string()),
+            twenty_four_seven_only: open_twenty_four_hours,
+            ..Default::default()
+        };
+        let raw = client(ctx)
+            .cabwise_get(lat, lon, &options)
+            .await
+            .map_err(to_gql_error)?;
+        let body: CabwiseBody = serde_json::from_value(raw).unwrap_or_default();
+        Ok(body
+            .operators
+            .unwrap_or_default()
+            .operator_list
+            .into_iter()
+            .map(TaxiOperator::from)
+            .collect())
+    }
+
+    /// Every electric-vehicle charge connector TfL knows about. One request.
+    ///
+    /// Around 350 of them, so pass `availableOnly` unless you want the lot.
+    /// TfL gives no location on this feed — only status — so use `sourceId` to
+    /// recognise a site you already know.
+    async fn charge_connectors(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Only connectors free to use right now.")] available_only: Option<bool>,
+        #[graphql(desc = "How many to return.")] first: Option<usize>,
+    ) -> Result<Vec<ChargeConnector>> {
+        let connectors = client(ctx)
+            .occupancy_get_all_charge_connector_status()
+            .await
+            .map_err(to_gql_error)?;
+        let mut out: Vec<ChargeConnector> = connectors
+            .into_iter()
+            .filter(|c| {
+                !available_only.unwrap_or(false)
+                    || c.status
+                        .as_deref()
+                        .is_some_and(|s| s.eq_ignore_ascii_case("Available"))
+            })
+            .map(ChargeConnector)
+            .collect();
+        out.truncate(first.unwrap_or(usize::MAX));
+        Ok(out)
+    }
+
+    /// How full TfL's car parks are, usually the ones at tube stations.
+    ///
+    /// One request. Note this feed is unreliable — TfL returns a 500 for it
+    /// often enough that an error here usually means their problem, not yours.
+    async fn car_parks(&self, ctx: &Context<'_>) -> Result<Vec<CarPark>> {
+        let parks = client(ctx).occupancy_get().await.map_err(to_gql_error)?;
+        Ok(parks.into_iter().map(CarPark).collect())
+    }
+
+    /// Recorded road collisions, for asking how dangerous somewhere is.
+    ///
+    /// **This is the expensive field.** TfL offers no filtering of its own, so
+    /// a year has to be downloaded whole — fifty thousand records and around
+    /// thirty-seven megabytes for 2019 — and everything is filtered here
+    /// afterwards. Expect several seconds. It is downloaded once per query
+    /// however many times you ask.
+    ///
+    /// Only **2019** has data; every later year returns an error from TfL, so
+    /// this is a historical question rather than a current one.
+    ///
+    /// Give `lat`/`lon` to ask about a junction or street, or `borough` for an
+    /// area.
+    #[allow(clippy::too_many_arguments)]
+    async fn accidents(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Year to search. Only 2019 has data.", default = 2019)] year: i32,
+        #[graphql(desc = "Centre of a geographic search.")] lat: Option<f64>,
+        #[graphql(desc = "Centre of a geographic search.")] lon: Option<f64>,
+        #[graphql(desc = "Radius in metres around lat/lon. Defaults to 500.")] radius: Option<f64>,
+        #[graphql(desc = "Restrict to these severities: \"Fatal\", \"Serious\", \"Slight\".")]
+        severities: Option<Vec<String>>,
+        #[graphql(desc = "Borough name, matched loosely, e.g. \"Westminster\".")] borough: Option<
+            String,
+        >,
+        #[graphql(desc = "How many to return, nearest first. Defaults to 25.")] first: Option<
+            usize,
+        >,
+    ) -> Result<Vec<Accident>> {
+        let near = match (lat, lon) {
+            (Some(lat), Some(lon)) => Some((lat, lon)),
+            (None, None) => None,
+            _ => return Err(to_gql_error("give both lat and lon, or neither")),
+        };
+        super::places::search(
+            ctx,
+            year,
+            near,
+            radius.unwrap_or(500.0),
+            &severities.unwrap_or_default(),
+            borough.as_deref(),
+            first.unwrap_or(25),
+        )
+        .await
+    }
+
     /// TfL's severity codes and what they mean.
     ///
     /// Explains the numbers on [`super::types::LineStatus`]; 10 is "Good
@@ -437,6 +632,20 @@ pub struct Severity {
     pub description: Option<String>,
     /// Severity codes differ per mode; this is the mode they apply to.
     pub mode: Option<String>,
+}
+
+/// Orders road disruptions worst-first.
+///
+/// TfL's road severities are words rather than the numbers lines use, and it
+/// returns them unordered.
+fn severity_rank(severity: Option<&str>) -> u8 {
+    match severity.unwrap_or_default() {
+        "Severe" => 0,
+        "Serious" => 1,
+        "Moderate" => 2,
+        "Minimal" => 3,
+        _ => 4,
+    }
 }
 
 fn client<'a>(ctx: &Context<'a>) -> &'a Arc<Client> {
