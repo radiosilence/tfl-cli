@@ -47,8 +47,7 @@ impl Line {
     /// Current service status — the "good service" / "severe delays" a
     /// passenger would recognise.
     ///
-    /// Free when the line came from `lines`, `line` or `linesByMode`, which
-    /// return status inline.
+    /// Free: every route into a line fetches status with it.
     async fn statuses(&self) -> Vec<LineStatus> {
         self.0
             .line_statuses

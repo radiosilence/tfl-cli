@@ -107,7 +107,12 @@ fn is_client_error(error: &Error) -> bool {
     matches!(error, Error::Status { status, .. } if status.is_client_error())
 }
 
-/// Loads lines by id — `/Line/{ids}`.
+/// Loads lines by id — `/Line/{ids}/Status`.
+///
+/// Deliberately not `/Line/{ids}`, which returns the same line with an empty
+/// `lineStatuses`. The status form costs one request either way and carries the
+/// thing anyone asking about a line actually wants, so `line(id: "victoria")
+/// { statuses { description } }` answers without a second round trip.
 pub struct LineLoader(Arc<Client>);
 
 impl Loader<String> for LineLoader {
@@ -117,7 +122,7 @@ impl Loader<String> for LineLoader {
     async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
         let lines = load_batch(keys, |ids| async move {
             let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-            self.0.line_get(&refs).await
+            self.0.line_status_by_ids(&refs, &Default::default()).await
         })
         .await?;
         Ok(key_by(lines, |line| line.id.clone()))
