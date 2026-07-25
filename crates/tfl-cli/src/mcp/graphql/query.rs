@@ -5,11 +5,9 @@
 //! `stopPoints` — the edges do the joining, and following the same edge across
 //! a list costs one request, not one per item.
 
-use std::sync::Arc;
-
 use async_graphql::{Context, Object, Result};
 use tfl_api_client::{
-    Client, Error as TflError, JourneyJourneyResultsOptions, StopPointGetByGeoPointOptions,
+    Error as TflError, JourneyJourneyResultsOptions, StopPointGetByGeoPointOptions,
     StopPointSearchByQueryOptions,
 };
 
@@ -17,7 +15,7 @@ use super::{
     bike::{BikePoint, distance_metres},
     environment::{AirQuality, AirQualityBody, CabwiseBody, TaxiOperator},
     journey::JourneyPlan,
-    loaders::{loaders, to_gql_error},
+    loaders::{client, loaders, to_gql_error},
     places::{Accident, CarPark, ChargeConnector},
     road::{Road, RoadDisruption},
     types::{Line, Mode, Prediction, StopPoint},
@@ -676,10 +674,6 @@ fn severity_rank(severity: Option<&str>) -> u8 {
         "Minimal" => 3,
         _ => 4,
     }
-}
-
-fn client<'a>(ctx: &Context<'a>) -> &'a Arc<Client> {
-    ctx.data_unchecked::<Arc<Client>>()
 }
 
 /// Stop points matching a term, as journey-planner location options.

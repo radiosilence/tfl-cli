@@ -129,7 +129,11 @@ resolving the corridors it blocks:
 
 ## Coverage
 
-Every domain in TfL's spec, bar one:
+Every domain in TfL's spec, bar one — though "domain" is doing real work in
+that sentence. TfL publishes 84 endpoints and many are variants of each other
+(`/Line/{ids}` and `/Line/{ids}/Status` return the same lines; the second also
+carries status, so only it is used). The graph reaches what it needs to answer
+questions, not one field per endpoint.
 
 | | |
 |---|---|
@@ -141,6 +145,10 @@ Every domain in TfL's spec, bar one:
 
 **TravelTime is deliberately absent.** It returns map tile images, which mean
 nothing over a text protocol.
+
+Known gaps, tracked as issues: timetables (scheduled departures — "when is the
+last train"), station crowding by time of day, and reachability between two
+stops on a line.
 
 Two things TfL does badly that are worth knowing: `/Occupancy/CarPark` returns
 a 500 more often than not — an error there is theirs — and `AccidentStats` only

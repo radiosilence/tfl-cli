@@ -53,6 +53,7 @@ pub struct Loaders {
     pub road_disruption: DataLoader<RoadDisruptionLoader, HashMapCache>,
     pub charge_connector: DataLoader<ChargeConnectorLoader, HashMapCache>,
     pub accidents: DataLoader<AccidentsLoader, HashMapCache>,
+    pub stop_disruption: DataLoader<StopDisruptionLoader, HashMapCache>,
 }
 
 impl Loaders {
@@ -108,9 +109,17 @@ impl Loaders {
                 cache(),
             )
             .max_batch_size(MAX_IDS),
-            accidents: DataLoader::with_cache(AccidentsLoader(client), spawn, cache()),
+            accidents: DataLoader::with_cache(AccidentsLoader(client.clone()), spawn, cache()),
+            stop_disruption: DataLoader::with_cache(StopDisruptionLoader(client), spawn, cache())
+                .max_batch_size(MAX_IDS),
         }
     }
+}
+
+/// Pulls the client out of a resolver's context, for the reads that have no
+/// batchable form and so do not go through a loader.
+pub fn client<'a>(ctx: &Context<'a>) -> &'a Arc<Client> {
+    ctx.data_unchecked::<Arc<Client>>()
 }
 
 /// Pulls the loaders out of a resolver's context.
@@ -431,6 +440,28 @@ impl Loader<i32> for AccidentsLoader {
         let requests = keys.iter().map(async |year| {
             let accidents = self.0.accident_stats_get(*year).await;
             (*year, accidents)
+        });
+        collect_per_key(futures_util::future::join_all(requests).await)
+    }
+}
+
+/// Loads disruptions at particular stops — `/StopPoint/{ids}/Disruption`.
+pub struct StopDisruptionLoader(Arc<Client>);
+
+impl Loader<String> for StopDisruptionLoader {
+    type Value = Vec<models::DisruptedPoint>;
+    type Error = LoadError;
+
+    async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
+        // One request per stop: the response identifies the affected stop by
+        // `atcoCode`, which is not always the id that was asked for, so
+        // batching would lose which disruption belongs to which stop.
+        let requests = keys.iter().map(async |id| {
+            let disruptions = self
+                .0
+                .stop_point_disruption(&[id], &Default::default())
+                .await;
+            (id.clone(), disruptions)
         });
         collect_per_key(futures_util::future::join_all(requests).await)
     }

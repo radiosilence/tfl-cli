@@ -35,8 +35,10 @@ pub struct Config {
     /// The GraphQL layer rejects the truly absurd queries, but this is the
     /// backstop that does not depend on anticipating the shape.
     pub max_concurrency: usize,
-    /// Reuse responses for as long as TfL's own `Cache-Control` says they are
-    /// fresh. Off by default so live data stays live.
+    /// Reuse *live* responses for as long as TfL's `Cache-Control` says they
+    /// are fresh. Off by default so live data stays live.
+    ///
+    /// Reference data is cached regardless — see [`is_reference_data`].
     pub cache: bool,
 }
 
@@ -134,10 +136,15 @@ impl Client {
         path: &str,
         query: &[(&str, String)],
     ) -> Result<T> {
+        // Reference data is cached whatever the configuration says, and live
+        // data only when asked for. Deciding by *what the endpoint is* rather
+        // than by its TTL removes the footgun: no setting can make an arrival
+        // time stale, and the vocabulary endpoints a model reads before every
+        // query stop costing a request each time.
+        let cacheable = self.config.cache || is_reference_data(path);
+
         let key = cache_key(path, query);
-        if self.config.cache
-            && let Some(body) = self.cache.get(&key)
-        {
+        if cacheable && let Some(body) = self.cache.get(&key) {
             return decode(path, &body);
         }
 
@@ -168,7 +175,7 @@ impl Client {
                         .and_then(|v| v.to_str().ok()),
                 );
                 let body = response.text().await?;
-                if self.config.cache {
+                if cacheable {
                     self.cache.insert(key, body.clone(), ttl);
                 }
                 return decode(path, &body);
@@ -254,6 +261,31 @@ impl<T> OneOrMany<T> {
     }
 }
 
+/// Whether a path returns vocabulary rather than observations.
+///
+/// TfL's `Meta` endpoints are the words the rest of the API expects — mode
+/// names, stop types, severity codes, service types. They change when TfL
+/// launches a line, and TfL itself marks them cacheable for twelve hours,
+/// where line status is thirty seconds. A model reads several of them before
+/// it can write its first sensible query, so re-fetching them per request is
+/// pure waste with no freshness argument against it.
+///
+/// The list is exact rather than a substring match: `/Line/Mode/{modes}/Status`
+/// contains "Mode" and is emphatically live.
+fn is_reference_data(path: &str) -> bool {
+    const REFERENCE_PREFIXES: &[&str] = &[
+        "/Line/Meta/",
+        "/StopPoint/Meta/",
+        "/Road/Meta/",
+        "/Place/Meta/",
+        "/Search/Meta/",
+        "/Journey/Meta/",
+    ];
+    REFERENCE_PREFIXES
+        .iter()
+        .any(|prefix| path.starts_with(prefix))
+}
+
 fn decode<T: serde::de::DeserializeOwned>(path: &str, body: &str) -> Result<T> {
     serde_json::from_str(body).map_err(|source| Error::Decode {
         path: path.to_string(),
@@ -286,6 +318,34 @@ mod tests {
             })
             .unwrap();
             assert!(!client.has_app_key(), "{key:?} should not count as a key");
+        }
+    }
+
+    #[test]
+    fn only_vocabulary_is_cached_unconditionally() {
+        // Vocabulary: changes when TfL launches a line.
+        for path in [
+            "/Line/Meta/Modes",
+            "/Line/Meta/Severity",
+            "/StopPoint/Meta/StopTypes",
+            "/Road/Meta/Severities",
+        ] {
+            assert!(is_reference_data(path), "{path} should be cached");
+        }
+
+        // Observations: caching any of these would serve a departure that has
+        // already left. `/Line/Mode/tube/Status` is the trap — it contains
+        // "Mode" but is live, which is why the check is a prefix and not a
+        // substring.
+        for path in [
+            "/Line/Mode/tube/Status",
+            "/StopPoint/940GZZLUKSX/Arrivals",
+            "/Line/victoria/Status",
+            "/Road/all/Disruption",
+            "/BikePoint",
+            "/AirQuality",
+        ] {
+            assert!(!is_reference_data(path), "{path} must not be cached");
         }
     }
 

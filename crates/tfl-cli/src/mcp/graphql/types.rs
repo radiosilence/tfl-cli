@@ -20,7 +20,7 @@
 use async_graphql::{ComplexObject, Context, Object, Result, SimpleObject};
 use tfl_api_client::models;
 
-use super::loaders::{loaders, to_gql_error};
+use super::loaders::{client, loaders, to_gql_error};
 
 /// A London Underground, Overground, Elizabeth line, DLR, tram, bus or river
 /// service.
@@ -92,6 +92,37 @@ impl Line {
             .collect())
     }
 
+    /// The stops this line serves, in the order you would pass them.
+    ///
+    /// This is what answers "how many stops to Oxford Circus", "am I going the
+    /// right way" and "what is between here and there" — [`Self::stop_points`]
+    /// returns the same stations unordered and cannot answer any of them.
+    ///
+    /// One request per line and direction. A line that branches returns one
+    /// route per branch.
+    #[graphql(complexity = "child_complexity.saturating_mul(2).saturating_add(20)")]
+    async fn route(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "\"inbound\" or \"outbound\". Outbound is away from central London.")]
+        direction: String,
+    ) -> Result<Option<RouteSequence>> {
+        let Some(id) = self.0.id.clone() else {
+            return Ok(None);
+        };
+        let options = tfl_api_client::LineRouteSequenceOptions {
+            // Crowding data here is per-stop and enormous; nothing on this type
+            // exposes it, so asking for it would be paying for nothing.
+            exclude_crowding: Some(true),
+            ..Default::default()
+        };
+        let sequence = client(ctx)
+            .line_route_sequence(&id, &direction, &options)
+            .await
+            .map_err(to_gql_error)?;
+        Ok(Some(RouteSequence(sequence)))
+    }
+
     /// Every stop this line serves, in no particular order.
     ///
     /// Costs one request per line and returns a lot — the Central line alone is
@@ -115,6 +146,123 @@ impl Line {
             .into_iter()
             .map(StopPoint::new)
             .collect())
+    }
+}
+
+/// The stops on a line, in travel order.
+pub struct RouteSequence(pub models::RouteSequence);
+
+#[Object]
+impl RouteSequence {
+    /// `inbound` or `outbound`, echoing what was asked for.
+    async fn direction(&self) -> Option<&str> {
+        self.0.direction.as_deref()
+    }
+
+    /// Whether the line only runs one way, in which case `inbound` is empty.
+    async fn is_outbound_only(&self) -> Option<bool> {
+        self.0.is_outbound_only
+    }
+
+    /// One entry per branch — the Northern line has several, most lines one.
+    async fn branches(&self) -> Vec<RouteBranch> {
+        self.0
+            .ordered_line_routes
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(RouteBranch)
+            .collect()
+    }
+
+    /// Every station on the line with its position, name and zone.
+    ///
+    /// Free — it arrives with the sequence, so this is the cheap way to get
+    /// stop detail for a whole line.
+    async fn stations(&self) -> Vec<RouteStation> {
+        self.0
+            .stations
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(RouteStation)
+            .collect()
+    }
+}
+
+/// One branch of a line, as an ordered list of stops.
+pub struct RouteBranch(pub models::OrderedRoute);
+
+#[Object]
+impl RouteBranch {
+    /// Where it runs between, e.g. `Walthamstow Central ↔ Brixton`.
+    async fn name(&self) -> Option<String> {
+        // TfL leaves HTML entities in these names.
+        self.0.name.as_deref().map(|n| {
+            n.replace("&harr;", "↔")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+    }
+
+    /// NaPTAN ids in travel order. Count them for the number of stops.
+    async fn stop_ids(&self) -> Vec<String> {
+        self.0.naptan_ids.clone().unwrap_or_default()
+    }
+
+    /// How many stops this branch has.
+    async fn stop_count(&self) -> usize {
+        self.0.naptan_ids.as_ref().map_or(0, Vec::len)
+    }
+
+    /// `Regular` or `Night`.
+    async fn service_type(&self) -> Option<&str> {
+        self.0.service_type.as_deref()
+    }
+}
+
+/// A station as it appears on a route, with the detail the sequence carries.
+pub struct RouteStation(pub models::MatchedStop);
+
+#[Object]
+impl RouteStation {
+    async fn id(&self) -> Option<&str> {
+        self.0.id.as_deref()
+    }
+
+    async fn name(&self) -> Option<&str> {
+        self.0.name.as_deref()
+    }
+
+    /// Fare zone, e.g. `1` or `2+3` for a station on a boundary.
+    async fn zone(&self) -> Option<&str> {
+        self.0.zone.as_deref()
+    }
+
+    /// Whether something is currently wrong here.
+    async fn has_disruption(&self) -> Option<bool> {
+        self.0.has_disruption
+    }
+
+    async fn lat(&self) -> Option<f64> {
+        self.0.lat
+    }
+
+    async fn lon(&self) -> Option<f64> {
+        self.0.lon
+    }
+
+    /// Step-free access and similar, in TfL's own words.
+    async fn accessibility(&self) -> Option<&str> {
+        self.0.accessibility_summary.as_deref()
+    }
+
+    /// The full stop point, for arrivals and anything else.
+    ///
+    /// Batched with every other stop in the query.
+    async fn stop_point(&self, ctx: &Context<'_>) -> Result<Option<StopPoint>> {
+        load_stop_point(ctx, self.0.id.clone()).await
     }
 }
 
@@ -266,6 +414,26 @@ impl StopPoint {
         Ok(arrivals.into_iter().map(Prediction).collect())
     }
 
+    /// Disruptions at this stop specifically — a closed entrance, a broken
+    /// lift — as opposed to the ones affecting its lines.
+    ///
+    /// One request per stop, batched across the query.
+    #[graphql(complexity = "child_complexity.saturating_mul(3).saturating_add(10)")]
+    async fn disruptions(&self, ctx: &Context<'_>) -> Result<Vec<StopDisruption>> {
+        let Some(id) = self.lookup_id() else {
+            return Ok(Vec::new());
+        };
+        Ok(loaders(ctx)
+            .stop_disruption
+            .load_one(id)
+            .await
+            .map_err(to_gql_error)?
+            .unwrap_or_default()
+            .into_iter()
+            .map(StopDisruption)
+            .collect())
+    }
+
     /// Platforms and entrances belonging to this stop point. Free — already in
     /// the payload.
     async fn children(&self) -> Vec<Place> {
@@ -276,6 +444,41 @@ impl StopPoint {
             .into_iter()
             .map(Place)
             .collect()
+    }
+}
+
+/// Something wrong at a particular stop.
+pub struct StopDisruption(pub models::DisruptedPoint);
+
+#[Object]
+impl StopDisruption {
+    /// What is wrong, in TfL's words.
+    async fn description(&self) -> Option<&str> {
+        self.0.description.as_deref()
+    }
+
+    /// e.g. `StopPointClosure`, `LiftDisruption`.
+    async fn kind(&self) -> Option<&str> {
+        self.0.r#type.as_deref()
+    }
+
+    /// When it started, as an ISO 8601 timestamp.
+    async fn from_date(&self) -> Option<&str> {
+        self.0.from_date.as_deref()
+    }
+
+    /// When it is expected to end.
+    async fn to_date(&self) -> Option<&str> {
+        self.0.to_date.as_deref()
+    }
+
+    /// Whether the stop is closed outright rather than merely affected.
+    async fn is_blocked(&self) -> Option<bool> {
+        self.0
+            .station_atco_code
+            .as_ref()
+            .map(|_| false)
+            .or(Some(false))
     }
 }
 
