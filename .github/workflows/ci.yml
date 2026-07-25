@@ -24,8 +24,10 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # --locked so a Cargo.lock left behind by a version bump fails here, with
+      # an error that says so, rather than surfacing somewhere unrelated.
       - name: Build
-        run: cargo build --workspace --verbose
+        run: cargo build --workspace --locked --verbose
       # The live tests are `#[ignore]`d and stay that way here: they hit
       # api.tfl.gov.uk, which would make CI fail for TfL's outages and spend a
       # shared 50 requests/minute budget on every push.
@@ -47,9 +49,12 @@ jobs:
       # reviewable commit instead.
       - name: Regenerate
         run: TFL_SPEC_OFFLINE=1 cargo xtask regen
+      # Scoped to the generated sources. Diffing the whole tree also catches
+      # unrelated churn — a stale Cargo.lock, say — and reports it as a codegen
+      # problem, sending you to re-run a generator that was never at fault.
       - name: Check for drift
         run: |
-          if ! git diff --exit-code --stat; then
+          if ! git diff --exit-code --stat -- crates/tfl-api-client/src/generated; then
             echo "::error::crates/tfl-api-client/src/generated is out of date. Run 'cargo xtask regen' and commit the result."
             exit 1
           fi
