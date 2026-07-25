@@ -1,5 +1,0 @@
-# Only needed to run `cargo xtask regen`, which shells out to openapi-generator
-# (a Java jar) and jq. Building and testing the workspace needs neither.
-[tools]
-java = "21"
-jq = "latest"

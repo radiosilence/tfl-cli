@@ -81,9 +81,9 @@ be derived from it, so the schema is ours.
 
 ## Codegen
 
-`cargo xtask regen` reads TfL's spec and writes the client. It needs `java`-free
-tooling — just `jq` isn't required either, it is pure Rust — and commits both the
-spec and the output so a TfL change lands as a reviewable diff.
+`cargo xtask regen` reads TfL's spec and writes the client. It is pure Rust with
+no external tooling — no JVM, no Node — and commits both the spec and the output,
+so a TfL change lands as a reviewable diff rather than a surprise.
 
 The generator is bespoke, which is unusual enough to justify.
 `openapi-generator` needs a JVM, fails TfL's own spec on validation, renders
