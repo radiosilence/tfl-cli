@@ -434,6 +434,52 @@ impl StopPoint {
             .collect())
     }
 
+    /// Stations reachable from here on a given line without changing.
+    ///
+    /// Answers "can I get there directly" without planning a journey. One
+    /// request.
+    #[graphql(complexity = "child_complexity.saturating_mul(20).saturating_add(10)")]
+    async fn can_reach_on_line(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Line id, e.g. \"victoria\".")] line_id: String,
+    ) -> Result<Vec<StopPoint>> {
+        let Some(id) = self.lookup_id() else {
+            return Ok(Vec::new());
+        };
+        let stops = client(ctx)
+            .stop_point_reachable_from(&id, &line_id, &Default::default())
+            .await
+            .map_err(to_gql_error)?;
+        Ok(stops.into_iter().map(StopPoint::new).collect())
+    }
+
+    /// Which way to travel to reach another stop: `inbound` or `outbound`.
+    ///
+    /// Removes a guess — every other field taking a `direction` argument wants
+    /// exactly this, and getting it wrong sends someone the opposite way. One
+    /// request.
+    #[graphql(complexity = "child_complexity.saturating_add(5)")]
+    async fn direction_to(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "NaPTAN id of the stop you want to reach.")] to_stop_point_id: String,
+        #[graphql(desc = "Restrict to a particular line.")] line_id: Option<String>,
+    ) -> Result<Option<String>> {
+        let Some(id) = self.lookup_id() else {
+            return Ok(None);
+        };
+        let options = tfl_api_client::StopPointDirectionOptions { line_id };
+        let direction = client(ctx)
+            .stop_point_direction(&id, &to_stop_point_id, &options)
+            .await
+            .map_err(to_gql_error)?;
+        // TfL answers with a bare JSON string, and "none" when the two stops
+        // share no direction at all.
+        let direction = direction.trim_matches('"').to_string();
+        Ok((!direction.is_empty() && direction != "none").then_some(direction))
+    }
+
     /// Platforms and entrances belonging to this stop point. Free — already in
     /// the payload.
     async fn children(&self) -> Vec<Place> {

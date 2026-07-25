@@ -208,12 +208,15 @@ fn emit_models(spec: &Spec, names: &TypeNames) -> Result<String> {
                 let _ = writeln!(out, "    #[serde(rename = \"{field}\")]");
                 rust_field
             };
-            let _ = writeln!(
-                out,
-                "    pub {}: Option<{}>,",
-                escape_ident(&ident),
-                rust_type(schema, names)?
-            );
+            let ty = rust_type(schema, names)?;
+            // TfL declares booleans it then sends as strings, and serde fails
+            // the whole response on one bad field.
+            if ty == "bool" {
+                out.push_str(
+                    "    #[serde(default, deserialize_with = \"crate::de::bool_or_string\")]\n",
+                );
+            }
+            let _ = writeln!(out, "    pub {}: Option<{ty}>,", escape_ident(&ident));
         }
         out.push_str("}\n");
     }

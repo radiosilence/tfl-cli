@@ -631,6 +631,19 @@ impl QueryRoot {
         .await
     }
 
+    /// The current time in London, and what it means for the network.
+    ///
+    /// Every timestamp TfL returns is London local with no zone marker, so
+    /// "2026-07-26T00:41:00" is ambiguous without knowing what time it is
+    /// there — and London is not UTC for half the year. Read this before
+    /// reasoning about whether a departure is soon, or whether the tube is
+    /// even running.
+    ///
+    /// Free: no request at all.
+    async fn now(&self) -> Now {
+        Now(chrono::Utc::now().with_timezone(&chrono_tz::Europe::London))
+    }
+
     /// TfL's severity codes and what they mean.
     ///
     /// Explains the numbers on [`super::types::LineStatus`]; 10 is "Good
@@ -648,6 +661,48 @@ impl QueryRoot {
                 mode: s.mode_name,
             })
             .collect())
+    }
+}
+
+/// The current moment in London.
+pub struct Now(chrono::DateTime<chrono_tz::Tz>);
+
+#[async_graphql::Object]
+impl Now {
+    /// ISO 8601 with offset, e.g. `2026-07-26T00:41:00+01:00`.
+    ///
+    /// The offset is the point: TfL's own timestamps omit it.
+    async fn time(&self) -> String {
+        self.0.to_rfc3339()
+    }
+
+    /// The local time as TfL would write it, for comparing against its
+    /// timestamps directly.
+    async fn local(&self) -> String {
+        self.0.format("%Y-%m-%dT%H:%M:%S").to_string()
+    }
+
+    /// e.g. `Saturday`.
+    async fn weekday(&self) -> String {
+        self.0.format("%A").to_string()
+    }
+
+    /// Whether London is on summer time. TfL's timestamps carry no offset, so
+    /// this is the only way to know what they mean.
+    async fn is_british_summer_time(&self) -> bool {
+        use chrono::Offset;
+        self.0.offset().fix().local_minus_utc() != 0
+    }
+
+    /// Whether the tube is likely to be running.
+    ///
+    /// A rule of thumb, not a timetable: roughly 05:00 to 00:30, and the Night
+    /// Tube runs on some lines on Friday and Saturday nights. Use it to decide
+    /// whether to warn someone, not to promise them a train.
+    async fn tube_likely_running(&self) -> bool {
+        use chrono::Timelike;
+        let hour = self.0.hour();
+        (5..24).contains(&hour) || hour == 0
     }
 }
 

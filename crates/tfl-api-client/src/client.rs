@@ -241,22 +241,23 @@ impl Client {
         path: &str,
         query: &[(&str, String)],
     ) -> Result<Vec<T>> {
-        Ok(self.get::<OneOrMany<T>>(path, query).await?.into_vec())
-    }
-}
+        let raw: serde_json::Value = self.get(path, query).await?;
 
-#[derive(serde::Deserialize)]
-#[serde(untagged)]
-enum OneOrMany<T> {
-    Many(Vec<T>),
-    One(Box<T>),
-}
-
-impl<T> OneOrMany<T> {
-    fn into_vec(self) -> Vec<T> {
-        match self {
-            Self::Many(items) => items,
-            Self::One(item) => vec![*item],
+        // Tried in order rather than through an untagged enum. `#[serde(
+        // untagged)]` reports only "data did not match any variant" and throws
+        // away the real error, so a genuine schema mismatch becomes
+        // undiagnosable — which field, which line, all gone. Decoding the list
+        // shape first and surfacing *its* error keeps the message that says
+        // what actually went wrong.
+        match serde_json::from_value::<Vec<T>>(raw.clone()) {
+            Ok(items) => Ok(items),
+            Err(list_error) => match serde_json::from_value::<T>(raw) {
+                Ok(single) => Ok(vec![single]),
+                Err(_) => Err(Error::Decode {
+                    path: path.to_string(),
+                    source: list_error,
+                }),
+            },
         }
     }
 }

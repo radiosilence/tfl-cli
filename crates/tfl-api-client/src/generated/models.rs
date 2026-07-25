@@ -389,6 +389,7 @@ pub struct CycleSuperhighway {
     #[serde(rename = "routeType")]
     pub route_type: Option<String>,
     /// True if the route is split into segments
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub segmented: Option<bool>,
     /// Cycle route status i.e Proposed, Existing etc
     pub status: Option<String>,
@@ -433,6 +434,7 @@ pub struct DisruptedRoute {
     pub id: Option<String>,
     /// Whether this represents the entire route section
     #[serde(rename = "isEntireRouteSection")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_entire_route_section: Option<bool>,
     /// The Id of the Line
     #[serde(rename = "lineId")]
@@ -529,10 +531,13 @@ pub struct FareBounds {
     pub from: Option<String>,
     pub id: Option<i32>,
     #[serde(rename = "isPopularFare")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_popular_fare: Option<bool>,
     #[serde(rename = "isPopularTravelCard")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_popular_travel_card: Option<bool>,
     #[serde(rename = "isTour")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_tour: Option<bool>,
     pub messages: Option<Vec<crate::generated::models::Message>>,
     pub operator: Option<String>,
@@ -549,6 +554,7 @@ pub struct FareDetails {
     #[serde(rename = "boundsId")]
     pub bounds_id: Option<i32>,
     #[serde(rename = "contactlessPAYGOnlyFare")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub contactless_p_a_y_g_only_fare: Option<bool>,
     #[serde(rename = "displayName")]
     pub display_name: Option<String>,
@@ -560,6 +566,7 @@ pub struct FareDetails {
     #[serde(rename = "fromStation")]
     pub from_station: Option<String>,
     #[serde(rename = "isTour")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_tour: Option<bool>,
     pub messages: Option<Vec<crate::generated::models::Message>>,
     pub mode: Option<String>,
@@ -571,10 +578,12 @@ pub struct FareDetails {
     #[serde(rename = "routeDescription")]
     pub route_description: Option<String>,
     #[serde(rename = "specialFare")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub special_fare: Option<bool>,
     #[serde(rename = "startDate")]
     pub start_date: Option<String>,
     #[serde(rename = "throughFare")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub through_fare: Option<bool>,
     #[serde(rename = "ticketsAvailable")]
     pub tickets_available: Option<Vec<crate::generated::models::Ticket>>,
@@ -615,6 +624,7 @@ pub struct FaresPeriod {
     pub end_date: Option<String>,
     pub id: Option<i32>,
     #[serde(rename = "isFuture")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_future: Option<bool>,
     #[serde(rename = "startDate")]
     pub start_date: Option<String>,
@@ -828,6 +838,7 @@ pub struct JourneyPlannerFare {
     #[serde(rename = "highZone")]
     pub high_zone: Option<i32>,
     #[serde(rename = "isHopperFare")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_hopper_fare: Option<bool>,
     #[serde(rename = "lowZone")]
     pub low_zone: Option<i32>,
@@ -897,6 +908,7 @@ pub struct ItineraryResult {
 #[serde(default)]
 pub struct JourneyPlannerJourney {
     #[serde(rename = "alternativeRoute")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub alternative_route: Option<bool>,
     #[serde(rename = "arrivalDateTime")]
     pub arrival_date_time: Option<String>,
@@ -962,6 +974,7 @@ pub struct Leg {
     pub distance: Option<f64>,
     pub duration: Option<i32>,
     #[serde(rename = "hasFixedLocations")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub has_fixed_locations: Option<bool>,
     /// Describes the action the user need to take for this section, E.g. "walk to the
     /// district line"
@@ -971,6 +984,7 @@ pub struct Leg {
     #[serde(rename = "interChangePosition")]
     pub inter_change_position: Option<String>,
     #[serde(rename = "isDisrupted")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_disrupted: Option<bool>,
     pub mode: Option<crate::generated::models::Identifier>,
     pub obstacles: Option<Vec<crate::generated::models::Obstacle>>,
@@ -1164,6 +1178,7 @@ pub struct LineSpecificServiceType {
     #[serde(rename = "serviceType")]
     pub service_type: Option<crate::generated::models::LineServiceTypeInfo>,
     #[serde(rename = "stopServesServiceType")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub stop_serves_service_type: Option<bool>,
 }
 
@@ -1233,6 +1248,7 @@ pub struct MatchedStop {
     pub accessibility_summary: Option<String>,
     pub direction: Option<String>,
     #[serde(rename = "hasDisruption")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub has_disruption: Option<bool>,
     #[serde(rename = "icsId")]
     pub ics_id: Option<String>,
@@ -1248,6 +1264,7 @@ pub struct MatchedStop {
     pub route_id: Option<i32>,
     #[serde(rename = "stationId")]
     pub station_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub status: Option<bool>,
     #[serde(rename = "stopLetter")]
     pub stop_letter: Option<String>,
@@ -1266,6 +1283,7 @@ pub struct MatchedStop {
 pub struct Message {
     #[serde(rename = "bulletOrder")]
     pub bullet_order: Option<i32>,
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub header: Option<bool>,
     #[serde(rename = "linkText")]
     pub link_text: Option<String>,
@@ -1279,10 +1297,13 @@ pub struct Message {
 #[serde(default)]
 pub struct Mode {
     #[serde(rename = "isFarePaying")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_fare_paying: Option<bool>,
     #[serde(rename = "isScheduledService")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_scheduled_service: Option<bool>,
     #[serde(rename = "isTflService")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_tfl_service: Option<bool>,
     #[serde(rename = "modeName")]
     pub mode_name: Option<String>,
@@ -1485,6 +1506,7 @@ pub struct PredictionTiming {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Redirect {
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub active: Option<bool>,
     #[serde(rename = "longUrl")]
     pub long_url: Option<String>,
@@ -1559,11 +1581,13 @@ pub struct RoadDisruption {
     /// True if any of the affected Streets have a "Full Closure" status, false otherwise. A RoadDisruption that has HasClosures is considered a
     /// Severe or Serious disruption for severity filtering purposes.
     #[serde(rename = "hasClosures")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub has_closures: Option<bool>,
     /// Unique identifier for the road disruption
     pub id: Option<String>,
     /// True if the disruption is planned on a future date that is open to change
     #[serde(rename = "isProvisional")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_provisional: Option<bool>,
     /// The date and time on which the disruption was last modified in the system. This information can reliably be used by a developer to quickly
     /// compare two instances of the same disruption to determine if it has been changed.
@@ -1655,6 +1679,7 @@ pub struct RoadDisruptionLine {
     pub end_time: Option<String>,
     pub id: Option<i32>,
     #[serde(rename = "isDiversion")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_diversion: Option<bool>,
     #[serde(rename = "multiLineString")]
     pub multi_line_string: Option<crate::generated::models::DbGeography>,
@@ -1761,6 +1786,7 @@ pub struct RouteSectionNaptanEntrySequence {
 pub struct RouteSequence {
     pub direction: Option<String>,
     #[serde(rename = "isOutboundOnly")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_outbound_only: Option<bool>,
     #[serde(rename = "lineId")]
     pub line_id: Option<String>,
@@ -1899,6 +1925,7 @@ pub struct StopPoint {
     pub sms_code: Option<String>,
     #[serde(rename = "stationNaptan")]
     pub station_naptan: Option<String>,
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub status: Option<bool>,
     /// The stop letter, if it could be cleansed from the Indicator e.g. "K"
     #[serde(rename = "stopLetter")]
@@ -1926,6 +1953,7 @@ pub struct StopPointRouteSection {
     pub destination_name: Option<String>,
     pub direction: Option<String>,
     #[serde(rename = "isActive")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_active: Option<bool>,
     #[serde(rename = "lineId")]
     pub line_id: Option<String>,
@@ -2135,6 +2163,7 @@ pub struct ValidityPeriod {
     pub from_date: Option<String>,
     /// If true is a realtime status rather than planned or info
     #[serde(rename = "isNow")]
+    #[serde(default, deserialize_with = "crate::de::bool_or_string")]
     pub is_now: Option<bool>,
     /// Gets or sets the end date.
     #[serde(rename = "toDate")]

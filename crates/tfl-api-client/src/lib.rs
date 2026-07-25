@@ -7,6 +7,7 @@
 
 mod cache;
 mod client;
+pub mod de;
 pub mod generated;
 
 pub use cache::CacheStats;
