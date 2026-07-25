@@ -15,6 +15,10 @@
 
 ### Notes
 
+- Loaders cache within a request as well as batching. Batching alone only
+  collapses keys that arrive in the same window, so two branches of one query
+  asking for the same stop would each fetch it.
+
 - Caching is off by default; transit data goes stale within seconds. When
   enabled it honours only TfL's own `Cache-Control`.
 - A blank `app_key` is never sent: TfL answers an invalid key with 429 where an

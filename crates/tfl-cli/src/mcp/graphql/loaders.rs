@@ -24,7 +24,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_graphql::{
     Context, Error as GqlError,
-    dataloader::{DataLoader, Loader},
+    dataloader::{DataLoader, HashMapCache, Loader},
 };
 use tfl_api_client::{Client, Error, models};
 
@@ -36,25 +36,43 @@ const MAX_IDS: usize = 20;
 
 /// Loaders attached to every request's context.
 pub struct Loaders {
-    pub line: DataLoader<LineLoader>,
-    pub stop_point: DataLoader<StopPointLoader>,
-    pub arrivals: DataLoader<ArrivalsLoader>,
-    pub line_stop_points: DataLoader<LineStopPointsLoader>,
-    pub disruption: DataLoader<DisruptionLoader>,
+    pub line: DataLoader<LineLoader, HashMapCache>,
+    pub stop_point: DataLoader<StopPointLoader, HashMapCache>,
+    pub arrivals: DataLoader<ArrivalsLoader, HashMapCache>,
+    pub line_stop_points: DataLoader<LineStopPointsLoader, HashMapCache>,
+    pub disruption: DataLoader<DisruptionLoader, HashMapCache>,
 }
 
 impl Loaders {
     pub fn new(client: Arc<Client>) -> Self {
         let spawn = tokio::spawn;
+        // Every loader caches. Batching alone only collapses keys that arrive
+        // in the same window, so two branches of a query asking for the same
+        // stop would each fetch it; the cache makes a repeated key free
+        // regardless of when it is asked for.
+        //
+        // The cache is safe precisely because `Loaders` is built per request
+        // and dropped with it — see the test that a second query re-fetches.
+        let cache = HashMapCache::default;
         Self {
-            line: DataLoader::new(LineLoader(client.clone()), spawn).max_batch_size(MAX_IDS),
-            stop_point: DataLoader::new(StopPointLoader(client.clone()), spawn)
+            line: DataLoader::with_cache(LineLoader(client.clone()), spawn, cache())
                 .max_batch_size(MAX_IDS),
-            // One request per stop whatever happens; batching only deduplicates.
-            arrivals: DataLoader::new(ArrivalsLoader(client.clone()), spawn).max_batch_size(1),
-            line_stop_points: DataLoader::new(LineStopPointsLoader(client.clone()), spawn)
-                .max_batch_size(1),
-            disruption: DataLoader::new(DisruptionLoader(client), spawn).max_batch_size(MAX_IDS),
+            stop_point: DataLoader::with_cache(StopPointLoader(client.clone()), spawn, cache())
+                .max_batch_size(MAX_IDS),
+            // No `max_batch_size` on these two. TfL has no batch form, so they
+            // fan out one request per key internally and a cap cannot reduce
+            // that — but a cap of 1 dispatches each key the instant it is
+            // asked for, which is precisely when two identical keys would
+            // otherwise have merged. Leaving it off is what makes asking for
+            // the same stop twice cost one request.
+            arrivals: DataLoader::with_cache(ArrivalsLoader(client.clone()), spawn, cache()),
+            line_stop_points: DataLoader::with_cache(
+                LineStopPointsLoader(client.clone()),
+                spawn,
+                cache(),
+            ),
+            disruption: DataLoader::with_cache(DisruptionLoader(client), spawn, cache())
+                .max_batch_size(MAX_IDS),
         }
     }
 }
