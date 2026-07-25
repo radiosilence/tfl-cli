@@ -1,0 +1,31 @@
+# Written over crates/tfl-api-client/Cargo.toml by `cargo xtask regen`.
+# The generator emits its own manifest pinning older dependency versions; this
+# replaces it so the crate tracks the workspace instead.
+[package]
+name = "tfl-api-client"
+version = "0.1.0"
+description = "Generated Rust client for the Transport for London Unified API"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+futures-util.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio = { workspace = true }
+url.workspace = true
+percent-encoding.workspace = true
+serde_repr = "0.1"
+serde_with = { version = "3.8", default-features = false, features = [
+  "base64",
+  "std",
+  "macros",
+] }
+
+[dev-dependencies]
+tokio.workspace = true
+wiremock = "0.6"
