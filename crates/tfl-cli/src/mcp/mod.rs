@@ -136,7 +136,7 @@ impl TflMcp {
     #[tool(
         name = "tfl",
         title = "TfL",
-        description = "Execute a GraphQL query against London transport: live arrivals, line status, disruptions, stations and routes. Get the schema from `tfl_schema` first. Variables are a JSON string."
+        description = "Execute a GraphQL query against London transport (TfL). Use for anything about getting around London: live arrivals and departures, tube/bus/DLR/Overground/Elizabeth line status and disruptions, stations and stops, journey planning between any two places with times and fares, step-free and accessibility routing, and Santander Cycles docking stations. Get the schema from `tfl_schema` first. Variables are a JSON string."
     )]
     async fn tfl(
         &self,
@@ -179,16 +179,25 @@ impl ServerHandler for TflMcp {
             // which never mention a train. The schema, and the reason batching
             // matters, are a tool call away.
             .with_instructions(
-                "London transport — live arrivals, line status, disruptions, stations \
-                 and routes — as a GraphQL API. Read the schema once with `tfl_schema`, \
-                 then query with `tfl`. Variables go as a JSON string.\n\n\
+                "London transport, as a GraphQL API. Read the schema once with \
+                 `tfl_schema`, then query with `tfl`. Variables go as a JSON string.\n\n\
+                 Covers live arrivals, line status and disruptions, stations and the \
+                 stops on a line, journey planning between any two places with times \
+                 and fares, and Santander Cycles docking stations. Reach for it for \
+                 anything about getting around London, including \"how do I get to\", \
+                 \"is the tube working\" and \"where can I get a bike\".\n\n\
                  The graph is joined on TfL's own foreign keys and everything below a \
                  list is batched, so ask for what you need in ONE query rather than \
                  looping: selecting `line { name }` across sixty arrivals costs one \
                  extra request, not sixty. Field descriptions say what each one costs.\n\n\
                  Arrivals are live and go stale within a minute or two — re-query \
                  rather than reusing an earlier answer, and give times as \
-                 \"in N minutes\" rather than a clock time unless asked.",
+                 \"in N minutes\" rather than a clock time unless asked.\n\n\
+                 Journeys take place names directly; there is no need to look up an id \
+                 first. If a name is ambiguous the result carries candidate locations \
+                 instead of routes — pick one and re-query with its `value`, and note \
+                 that a station is usually meant even when a shop of the same name \
+                 scores higher.",
             )
     }
 }
