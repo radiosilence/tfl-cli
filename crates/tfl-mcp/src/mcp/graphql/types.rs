@@ -238,9 +238,36 @@ impl RouteBranch {
         })
     }
 
-    /// NaPTAN ids in travel order. Count them for the number of stops.
+    /// NaPTAN ids in travel order.
+    ///
+    /// Free — already in the payload. Use [`Self::stops`] when you want the
+    /// stations themselves rather than their ids.
     async fn stop_ids(&self) -> Vec<String> {
         self.0.naptan_ids.clone().unwrap_or_default()
+    }
+
+    /// The stops themselves, in travel order.
+    ///
+    /// What `stopIds` refers to, resolved. One batched request per 20 stops,
+    /// shared with every other stop point in the query — so asking for the
+    /// whole Victoria line is two requests, not sixteen.
+    #[graphql(complexity = "child_complexity.saturating_mul(25).saturating_add(10)")]
+    async fn stops(&self, ctx: &Context<'_>) -> Result<Vec<StopPoint>> {
+        let ids = self.0.naptan_ids.clone().unwrap_or_default();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let loaded = loaders(ctx)
+            .stop_point
+            .load_many(ids.clone())
+            .await
+            .map_err(to_gql_error)?;
+        // Travel order is the whole point of this type, so the ids drive the
+        // order rather than whatever the batch response came back in.
+        Ok(ids
+            .into_iter()
+            .filter_map(|id| Some(StopPoint::requested(&id, loaded.get(&id)?.clone())))
+            .collect())
     }
 
     /// How many stops this branch has.
@@ -422,7 +449,7 @@ impl StopPoint {
     ///
     /// This is live data and goes stale in seconds; it is never cached.
     #[graphql(
-        complexity = "child_complexity.saturating_mul(30).saturating_add(10).min(super::COMPLEXITY_CEILING)"
+        complexity = "child_complexity.saturating_mul(first.unwrap_or(30)).saturating_add(10).min(super::COMPLEXITY_CEILING)"
     )]
     async fn arrivals(
         &self,
@@ -671,6 +698,24 @@ impl Prediction {
     /// Batched with every other stop point in the query.
     async fn stop_point(&self, ctx: &Context<'_>) -> Result<Option<StopPoint>> {
         load_stop_point(ctx, self.0.naptan_id.clone()).await
+    }
+
+    /// Everywhere else this same vehicle is due, in time order.
+    ///
+    /// Follows `vehicleId`, so it answers "where is this train going after
+    /// here" and "how far behind is it". Empty when TfL gave no vehicle id,
+    /// which is common on some modes. One request per 25 vehicles.
+    #[graphql(complexity = "child_complexity.saturating_mul(10).saturating_add(10)")]
+    async fn vehicle_journey(&self, ctx: &Context<'_>) -> Result<Vec<Prediction>> {
+        let Some(vehicle) = self.0.vehicle_id.as_deref().filter(|v| !v.is_empty()) else {
+            return Ok(Vec::new());
+        };
+        let mut arrivals = client(ctx)
+            .vehicle_get(&[vehicle])
+            .await
+            .map_err(to_gql_error)?;
+        arrivals.sort_by_key(|p| p.time_to_station.unwrap_or(i32::MAX));
+        Ok(arrivals.into_iter().map(Prediction).collect())
     }
 
     /// The stop this vehicle terminates at.

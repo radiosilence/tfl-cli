@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `RouteBranch.stops` — the stops on a line in travel order, resolved into
+  stop points rather than left as sixteen bare NaPTAN strings. Batched, so the
+  whole Victoria line is two requests.
+- `Prediction.vehicleJourney` — everywhere else the same vehicle is due, in
+  time order. Answers "where is this train going after here" by following
+  `vehicleId`, which was previously a dead string.
+
+### Fixed
+
+- `arrivals` is now priced by its own `first` argument rather than a flat
+  thirty, so asking for two arrivals is not charged for thirty. Following two
+  edges below a trimmed list was being refused as too complex when it was
+  nothing of the sort.
+
 ## 1.3.1
 
 ### Fixed
