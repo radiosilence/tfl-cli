@@ -20,7 +20,10 @@
 use async_graphql::{ComplexObject, Context, Object, Result, SimpleObject};
 use tfl_api_client::models;
 
-use super::loaders::{client, fetched, loaders, to_gql_error};
+use super::{
+    crowding::{DayCrowding, LiveCrowding},
+    loaders::{client, fetched, loaders, to_gql_error},
+};
 
 /// A London Underground, Overground, Elizabeth line, DLR, tram, bus or river
 /// service.
@@ -467,6 +470,41 @@ impl StopPoint {
         // share no direction at all.
         let direction = direction.trim_matches('"').to_string();
         Ok((!direction.is_empty() && direction != "none").then_some(direction))
+    }
+
+    /// How busy this station is right now, relative to its own normal.
+    ///
+    /// Answers "is Oxford Circus hell at the moment". Not every station has
+    /// sensors — check `dataAvailable`, because a missing figure is not a
+    /// quiet station. One request.
+    #[graphql(complexity = "child_complexity.saturating_add(5)")]
+    async fn crowding(&self, ctx: &Context<'_>) -> Result<Option<LiveCrowding>> {
+        let Some(id) = self.lookup_id() else {
+            return Ok(None);
+        };
+        Ok(Some(
+            client(ctx).crowding_live(&id).await.map_err(to_gql_error)?,
+        ))
+    }
+
+    /// How busy this station usually is across a given day, in quarter-hours.
+    ///
+    /// Answers "when is the quietest time to travel". One request.
+    #[graphql(complexity = "child_complexity.saturating_mul(2).saturating_add(5)")]
+    async fn crowding_on(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Three-letter day, e.g. \"Mon\", \"Sat\".")] day: String,
+    ) -> Result<Option<DayCrowding>> {
+        let Some(id) = self.lookup_id() else {
+            return Ok(None);
+        };
+        Ok(Some(
+            client(ctx)
+                .crowding_day(&id, &day)
+                .await
+                .map_err(to_gql_error)?,
+        ))
     }
 
     /// Platforms and entrances belonging to this stop point. Free — already in
