@@ -202,31 +202,52 @@ fn expensive_fields_say_so() {
 
 #[test]
 fn every_domain_tfl_documents_is_reachable() {
-    // TfL's spec covers 15 tags. TravelTime is deliberately absent — it returns
-    // map tile images, which mean nothing over this transport.
+    // Derived from the committed spec, not from a hand-written list. The
+    // previous version listed the domains from memory, so it passed while
+    // `Place` was entirely unreachable and while the count was simply wrong —
+    // a test that asserted what its author already believed.
+    let spec: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../codegen/tfl-swagger.json"))
+            .expect("the committed spec should parse");
+    let mut domains: Vec<String> = spec["paths"]
+        .as_object()
+        .expect("paths")
+        .values()
+        .flat_map(|methods| methods.as_object().expect("methods").values())
+        .filter_map(|op| op["tags"][0].as_str().map(str::to_string))
+        .collect();
+    domains.sort();
+    domains.dedup();
+
+    // The one deliberate omission. It serves map tile images, which mean
+    // nothing over a text protocol.
+    const SKIPPED: &[&str] = &["TravelTime"];
+
+    // What reaching a domain looks like in the SDL — a root field, or a type.
+    let reaches = |sdl: &str, domain: &str| match domain {
+        "AccidentStats" => sdl.contains("accidents("),
+        "AirQuality" => sdl.contains("airQuality:"),
+        "BikePoint" => sdl.contains("bikePointsNear("),
+        "Cabwise" => sdl.contains("taxiOperators("),
+        "Journey" => sdl.contains("journey("),
+        "Line" => sdl.contains("linesByMode("),
+        "Mode" => sdl.contains("modes:"),
+        "Occupancy" => sdl.contains("chargeConnectors("),
+        "Place" => sdl.contains("places("),
+        "Road" => sdl.contains("roadDisruptions("),
+        "Search" => sdl.contains("searchStopPoints("),
+        "StopPoint" => sdl.contains("stopPoint("),
+        "Vehicle" => sdl.contains("vehicleArrivals("),
+        other => panic!("TfL added a domain nobody has decided about: {other}"),
+    };
+
     let sdl = sdl_text();
-    for domain in [
-        "StopPoint",
-        "Line",
-        "Prediction",
-        "JourneyPlan",
-        "BikePoint",
-        "Road",
-        "RoadDisruption",
-        "AirQuality",
-        "TaxiOperator",
-        "ChargeConnector",
-        "CarPark",
-        "Accident",
-        "Mode",
-        "Disruption",
-        "LineStatus",
-    ] {
-        assert!(
-            sdl.contains(&format!("type {domain} ")),
-            "no `type {domain}` in the schema"
-        );
-    }
+    let missing: Vec<&String> = domains
+        .iter()
+        .filter(|d| !SKIPPED.contains(&d.as_str()))
+        .filter(|d| !reaches(&sdl, d))
+        .collect();
+    assert!(missing.is_empty(), "unreachable domains: {missing:?}");
 }
 
 #[test]

@@ -18,6 +18,7 @@ use super::{
     loaders::{WholeList, client, loaders, to_gql_error, whole_list},
     places::{Accident, CarPark, ChargeConnector},
     road::{Road, RoadDisruption},
+    types::Place,
     types::{Line, Mode, Prediction, StopPoint},
 };
 
@@ -667,6 +668,106 @@ impl QueryRoot {
     /// Free: no request at all.
     async fn now(&self) -> Now {
         Now(chrono::Utc::now().with_timezone(&chrono_tz::Europe::London))
+    }
+
+    /// Places of a given type — car parks, taxi ranks, cycle parks, coach
+    /// bays, charge stations.
+    ///
+    /// The counterpart to `stopPointsNear`: those are where transport stops,
+    /// these are everything else TfL maps. See `placeTypes` for the
+    /// vocabulary. One request.
+    ///
+    /// Give `lat`/`lon` to keep only what is nearby, measured here — TfL has no
+    /// radius filter on this feed.
+    #[graphql(complexity = "child_complexity.saturating_mul(30).saturating_add(10)")]
+    async fn places(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Place types, e.g. [\"CarPark\", \"TaxiRank\"]. See `placeTypes`.")]
+        types: Vec<String>,
+        #[graphql(desc = "Centre of a geographic filter, applied locally.")] lat: Option<f64>,
+        #[graphql(desc = "Centre of a geographic filter, applied locally.")] lon: Option<f64>,
+        #[graphql(desc = "Radius in metres around lat/lon. Defaults to 1000.")] radius: Option<f64>,
+        #[graphql(desc = "How many to return, nearest first when a location is given.")]
+        first: Option<usize>,
+    ) -> Result<Vec<Place>> {
+        let near = match (lat, lon) {
+            (Some(lat), Some(lon)) => Some((lat, lon)),
+            (None, None) => None,
+            _ => return Err(to_gql_error("give both lat and lon, or neither")),
+        };
+        let types: Vec<&str> = types.iter().map(String::as_str).collect();
+        // `activeOnly` is deliberately not set: TfL answers it with a list of
+        // entirely null places rather than a filtered one.
+        let found = client(ctx)
+            .place_get_by_type(&types, &Default::default())
+            .await
+            .map_err(to_gql_error)?;
+
+        let radius = radius.unwrap_or(1000.0);
+        let mut places: Vec<(f64, tfl_api_client::models::Place)> = Vec::new();
+        for place in found {
+            let rank = match (near, place.lat, place.lon) {
+                (Some(origin), Some(lat), Some(lon)) => {
+                    let metres = distance_metres(origin, (lat, lon));
+                    if metres > radius {
+                        continue;
+                    }
+                    metres
+                }
+                (Some(_), _, _) => continue,
+                (None, _, _) => 0.0,
+            };
+            places.push((rank, place));
+        }
+        if near.is_some() {
+            places.sort_by(|a, b| a.0.total_cmp(&b.0));
+        }
+        places.truncate(first.unwrap_or(25));
+        Ok(places.into_iter().map(|(_, p)| Place(p)).collect())
+    }
+
+    /// A place by id, e.g. a specific car park.
+    async fn place(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "TfL place id.")] id: String,
+    ) -> Result<Option<Place>> {
+        let found = client(ctx)
+            .place_get(&id, &Default::default())
+            .await
+            .map_err(to_gql_error)?;
+        Ok(found.into_iter().next().map(Place))
+    }
+
+    /// Finds places by name, e.g. `Heathrow`.
+    async fn search_places(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Part of a place name.")] name: String,
+        #[graphql(desc = "Restrict to these types. See `placeTypes`.")] types: Option<Vec<String>>,
+    ) -> Result<Vec<Place>> {
+        let types = types.unwrap_or_default();
+        let options = tfl_api_client::PlaceSearchOptions {
+            types: (!types.is_empty()).then_some(types),
+        };
+        let found = client(ctx)
+            .place_search(&name, &options)
+            .await
+            .map_err(to_gql_error)?;
+        Ok(found.into_iter().map(Place).collect())
+    }
+
+    /// Every place type TfL maps — the vocabulary for `places(types:)`.
+    ///
+    /// `CarPark`, `TaxiRank`, `BikePoint`, `CoachBay`, `ChargeStation` and a
+    /// long tail of planning boundaries.
+    async fn place_types(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
+        let types: Vec<serde_json::Value> = whole_list(ctx, WholeList::PlaceTypes).await?;
+        Ok(types
+            .into_iter()
+            .filter_map(|t| t.as_str().map(str::to_string))
+            .collect())
     }
 
     /// The severity codes used by **lines**, and what they mean.
