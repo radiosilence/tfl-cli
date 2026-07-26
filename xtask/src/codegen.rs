@@ -453,7 +453,16 @@ fn push_query(p: &Param, value: &str) -> String {
         return format!("__query.push((\"{name}\", {value}.to_string()));");
     }
     // `multi` repeats the key; everything else is a comma-joined list.
-    if p.collection_format.as_deref() == Some("multi") {
+    //
+    // Except where TfL contradicts itself inside one parameter definition:
+    // `accessibilityPreference` is declared `multi` and described as "must be a
+    // comma separated list", and the repeated form really does 400 while the
+    // joined form works. Its own prose is the better evidence, since it
+    // describes what the service does rather than what the generator was told.
+    let says_comma_separated = p.description.as_deref().is_some_and(|d| {
+        d.to_lowercase().contains("comma") && d.to_lowercase().contains("separat")
+    });
+    if p.collection_format.as_deref() == Some("multi") && !says_comma_separated {
         format!("for item in {value} {{ __query.push((\"{name}\", item.to_string())); }}")
     } else {
         format!("__query.push((\"{name}\", crate::join({value})));")
