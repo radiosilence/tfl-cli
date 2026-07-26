@@ -1,13 +1,25 @@
 # tfl-cli
 
 London transport as a GraphQL API, and an MCP server over it. Live arrivals,
-line status, disruptions, stations and routes.
+line status, disruptions, journeys, roads, bikes and air quality.
+
+It is a server, not a CLI. The binary serves; the two subcommands exist to
+inspect what it serves:
 
 ```console
-$ tfl status --disrupted
-$ tfl arrivals "Kings Cross" --limit 5
-$ tfl query '{ stopPoint(id: "940GZZLUKSX") { arrivals(first: 3) { timeToStation line { name } } } }'
+$ tfl                                        # MCP over stdio
+$ tfl --http 0.0.0.0:8080 --graphql          # MCP + GraphQL over HTTP
+$ tfl --http 127.0.0.1:8080 --graphiql       # + GraphiQL, opens a browser
+
+$ tfl schema                                 # the SDL a model reads
+$ tfl query '{ disruptedLines { name statuses { description } } }'
 ```
+
+There were `arrivals`, `status` and `search` subcommands. They were GraphQL
+queries built by pasting strings together, which nobody would type when they
+could ask an assistant, and which needed their own escaping to keep a station
+called `King's Cross` from ending the literal early. `tfl query` does the same
+job without a second implementation to keep honest.
 
 ## Why a graph
 
@@ -188,12 +200,6 @@ query parameters only — and the document has not meaningfully changed in years
 Anything unhandled makes the generator bail rather than emit broken code.
 
 ## Running it
-
-```console
-$ tfl mcp                                    # stdio, for a local MCP client
-$ tfl mcp --http 0.0.0.0:8080                # streamable-HTTP
-$ tfl mcp --http 127.0.0.1:8080 --graphiql   # + GraphiQL at /
-```
 
 Two tools: `tfl_schema` returns the SDL, `tfl` runs a query. The schema stays
 behind a tool call rather than riding in the always-loaded descriptions, so a

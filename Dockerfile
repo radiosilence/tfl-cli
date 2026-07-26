@@ -19,4 +19,4 @@ EXPOSE 8080
 RUN useradd --system --uid 10001 --create-home app
 USER app
 ENTRYPOINT ["tfl"]
-CMD ["mcp", "--http", "0.0.0.0:8080"]
+CMD ["--http", "0.0.0.0:8080", "--graphql"]

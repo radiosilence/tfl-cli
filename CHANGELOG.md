@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.0
+
+Breaking, and the surface is settled enough to say so.
+
+### Changed
+
+- **Serving is the default.** `tfl --http 0.0.0.0:8080` replaces `tfl mcp
+  --http …`. The `mcp` subcommand is kept, hidden and deprecated, so an image
+  tag and its arguments can still move independently — a version bump alone
+  cannot break a running deployment.
+- **Removed the `arrivals`, `status` and `search` subcommands.** They were
+  GraphQL queries assembled by pasting strings together: a second
+  implementation of what `tfl query` already does, carrying its own escaping so
+  that a station called `King's Cross` could not end the literal early. Nobody
+  would type them when they could ask an assistant.
+- **Every read now takes the same path** — resolver, loader, request. The
+  argument-less feeds (the `Meta` vocabularies, roads, air quality, charge
+  connectors, car parks, bike points) went straight to the client, which meant
+  two branches of one query each fetched them. They share a loader now, so
+  `{ a: modes { name } b: modes { name } }` costs one request rather than two.
+  Closes the last case where identical reads in a single query did not
+  deduplicate.
+
 ## 0.5.1
 
 ### Fixed

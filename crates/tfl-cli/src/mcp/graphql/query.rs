@@ -13,9 +13,9 @@ use tfl_api_client::{
 
 use super::{
     bike::{BikePoint, distance_metres},
-    environment::{AirQuality, AirQualityBody, CabwiseBody, TaxiOperator},
+    environment::{AirQuality, CabwiseBody, TaxiOperator},
     journey::JourneyPlan,
-    loaders::{client, loaders, to_gql_error},
+    loaders::{WholeList, client, loaders, to_gql_error, whole_list},
     places::{Accident, CarPark, ChargeConnector},
     road::{Road, RoadDisruption},
     types::{Line, Mode, Prediction, StopPoint},
@@ -267,16 +267,13 @@ impl QueryRoot {
     /// Worth reading first: it is the vocabulary every `modes` argument
     /// expects. One request, and TfL caches it for twelve hours.
     async fn modes(&self, ctx: &Context<'_>) -> Result<Vec<Mode>> {
-        let modes = client(ctx).line_meta_modes().await.map_err(to_gql_error)?;
+        let modes: Vec<tfl_api_client::models::Mode> = whole_list(ctx, WholeList::Modes).await?;
         Ok(modes.into_iter().map(Mode::from).collect())
     }
 
     /// The NaPTAN stop types accepted by [`Self::stop_points_near`].
     async fn stop_types(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
-        client(ctx)
-            .stop_point_meta_stop_types()
-            .await
-            .map_err(to_gql_error)
+        whole_list(ctx, WholeList::StopTypes).await
     }
 
     /// Plans a journey between two places.
@@ -445,10 +442,8 @@ impl QueryRoot {
     /// The vocabulary for `roadDisruptions(severities:)`. Roads grade severity
     /// in words where lines use numbers.
     async fn road_severities(&self, ctx: &Context<'_>) -> Result<Vec<Severity>> {
-        let severities = client(ctx)
-            .road_meta_severities()
-            .await
-            .map_err(to_gql_error)?;
+        let severities: Vec<tfl_api_client::models::StatusSeverity> =
+            whole_list(ctx, WholeList::RoadSeverities).await?;
         Ok(severities
             .into_iter()
             .map(|s| Severity {
@@ -467,7 +462,8 @@ impl QueryRoot {
         complexity = "child_complexity.saturating_mul(24).saturating_add(5).min(super::COMPLEXITY_CEILING)"
     )]
     async fn roads(&self, ctx: &Context<'_>) -> Result<Vec<Road>> {
-        let roads = client(ctx).road_get().await.map_err(to_gql_error)?;
+        let roads: Vec<tfl_api_client::models::RoadCorridor> =
+            whole_list(ctx, WholeList::Roads).await?;
         Ok(roads.into_iter().map(Road).collect())
     }
 
@@ -528,12 +524,9 @@ impl QueryRoot {
     /// cycling or walking journey — `current { band nitrogenDioxide }` answers
     /// "is it a good day to cycle".
     async fn air_quality(&self, ctx: &Context<'_>) -> Result<AirQuality> {
-        let raw = client(ctx).air_quality_get().await.map_err(to_gql_error)?;
         // The spec types this endpoint as an untyped object, so the shape is
-        // ours to assert; a change upstream degrades to empty rather than
-        // failing the query.
-        let body: AirQualityBody = serde_json::from_value(raw).unwrap_or_default();
-        Ok(AirQuality(body))
+        // ours to assert.
+        Ok(AirQuality(whole_list(ctx, WholeList::AirQuality).await?))
     }
 
     /// Licensed minicab and taxi operators near a coordinate, nearest first.
@@ -584,10 +577,8 @@ impl QueryRoot {
         #[graphql(desc = "Only connectors free to use right now.")] available_only: Option<bool>,
         #[graphql(desc = "How many to return.")] first: Option<usize>,
     ) -> Result<Vec<ChargeConnector>> {
-        let connectors = client(ctx)
-            .occupancy_get_all_charge_connector_status()
-            .await
-            .map_err(to_gql_error)?;
+        let connectors: Vec<tfl_api_client::models::ChargeConnectorOccupancy> =
+            whole_list(ctx, WholeList::ChargeConnectors).await?;
         let mut out: Vec<ChargeConnector> = connectors
             .into_iter()
             .filter(|c| {
@@ -610,7 +601,8 @@ impl QueryRoot {
     /// than yours.
     #[graphql(complexity = "child_complexity.saturating_mul(30).saturating_add(10)")]
     async fn car_parks(&self, ctx: &Context<'_>) -> Result<Vec<CarPark>> {
-        let parks = client(ctx).occupancy_get().await.map_err(to_gql_error)?;
+        let parks: Vec<tfl_api_client::models::CarParkOccupancy> =
+            whole_list(ctx, WholeList::CarParks).await?;
         Ok(parks.into_iter().map(CarPark).collect())
     }
 
@@ -685,10 +677,8 @@ impl QueryRoot {
     /// — see `roadSeverities` — nor for `accidents(severities:)`, which takes
     /// "Fatal", "Serious" or "Slight".
     async fn severities(&self, ctx: &Context<'_>) -> Result<Vec<Severity>> {
-        let severities = client(ctx)
-            .line_meta_severity()
-            .await
-            .map_err(to_gql_error)?;
+        let severities: Vec<tfl_api_client::models::StatusSeverity> =
+            whole_list(ctx, WholeList::LineSeverities).await?;
         Ok(severities
             .into_iter()
             .map(|s| Severity {
@@ -815,13 +805,6 @@ async fn station_options(
 /// Every docking station, fetched once per request however many bike fields a
 /// query touches.
 async fn all_bike_points(ctx: &Context<'_>) -> Result<Vec<BikePoint>> {
-    Ok(loaders(ctx)
-        .bike_points
-        .load_one(())
-        .await
-        .map_err(to_gql_error)?
-        .unwrap_or_default()
-        .into_iter()
-        .map(BikePoint::new)
-        .collect())
+    let places: Vec<tfl_api_client::models::Place> = whole_list(ctx, WholeList::BikePoints).await?;
+    Ok(places.into_iter().map(BikePoint::new).collect())
 }

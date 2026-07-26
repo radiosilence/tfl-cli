@@ -16,11 +16,11 @@
 //! | [`LineStopPointsLoader`] | `/Line/{id}/StopPoints` | ditto per line |
 //! | [`DisruptionLoader`] | `/Line/{ids}/Disruption` | all disruption edges in one request |
 //! | [`BikeOccupancyLoader`] | `/Occupancy/BikePoints/{ids}` | every docking station's live counts in one request |
-//! | [`BikePointsLoader`] | `/BikePoint` | the whole set, fetched once per query |
 //! | [`RoadLoader`] | `/Road/{ids}` | every corridor a disruption names, in one request |
 //! | [`RoadDisruptionLoader`] | `/Road/{ids}/Disruption` | ditto per road |
 //! | [`ChargeConnectorLoader`] | `/Occupancy/ChargeConnector/{ids}` | every connector's status in one request |
 //! | [`AccidentsLoader`] | `/AccidentStats/{year}` | a 37MB year downloaded once, not per field |
+//! | [`WholeListLoader`] | the argument-less feeds | each fetched once per query however often it is asked for |
 //!
 //! Loaders are built per request, so nothing survives between queries: transit
 //! data goes stale in seconds and a cache that outlived the request would serve
@@ -48,12 +48,12 @@ pub struct Loaders {
     pub line_stop_points: DataLoader<LineStopPointsLoader, HashMapCache>,
     pub disruption: DataLoader<DisruptionLoader, HashMapCache>,
     pub bike_occupancy: DataLoader<BikeOccupancyLoader, HashMapCache>,
-    pub bike_points: DataLoader<BikePointsLoader, HashMapCache>,
     pub road: DataLoader<RoadLoader, HashMapCache>,
     pub road_disruption: DataLoader<RoadDisruptionLoader, HashMapCache>,
     pub charge_connector: DataLoader<ChargeConnectorLoader, HashMapCache>,
     pub accidents: DataLoader<AccidentsLoader, HashMapCache>,
     pub stop_disruption: DataLoader<StopDisruptionLoader, HashMapCache>,
+    pub whole_list: DataLoader<WholeListLoader, HashMapCache>,
 }
 
 impl Loaders {
@@ -94,7 +94,6 @@ impl Loaders {
             .max_batch_size(MAX_IDS),
             // Keyed by `()`: TfL has no way to ask for a subset, so the only
             // thing to batch is the whole set, once.
-            bike_points: DataLoader::with_cache(BikePointsLoader(client.clone()), spawn, cache()),
             road: DataLoader::with_cache(RoadLoader(client.clone()), spawn, cache())
                 .max_batch_size(MAX_IDS),
             road_disruption: DataLoader::with_cache(
@@ -110,8 +109,13 @@ impl Loaders {
             )
             .max_batch_size(MAX_IDS),
             accidents: DataLoader::with_cache(AccidentsLoader(client.clone()), spawn, cache()),
-            stop_disruption: DataLoader::with_cache(StopDisruptionLoader(client), spawn, cache())
-                .max_batch_size(MAX_IDS),
+            stop_disruption: DataLoader::with_cache(
+                StopDisruptionLoader(client.clone()),
+                spawn,
+                cache(),
+            )
+            .max_batch_size(MAX_IDS),
+            whole_list: DataLoader::with_cache(WholeListLoader(client), spawn, cache()),
         }
     }
 }
@@ -373,24 +377,6 @@ impl Loader<String> for BikeOccupancyLoader {
     }
 }
 
-/// Loads every docking station — `/BikePoint`.
-///
-/// Keyed by `()` because TfL offers no filter: there is one request to make and
-/// the loader exists so a query mentioning bike points twice makes it once. The
-/// response is around 800 stations, which is why nothing else fetches it
-/// speculatively.
-pub struct BikePointsLoader(Arc<Client>);
-
-impl Loader<()> for BikePointsLoader {
-    type Value = Vec<models::Place>;
-    type Error = LoadError;
-
-    async fn load(&self, _keys: &[()]) -> Result<HashMap<(), Self::Value>, Self::Error> {
-        let points = self.0.bike_point_get_all().await.map_err(Arc::new)?;
-        Ok(HashMap::from([((), points)]))
-    }
-}
-
 /// Loads road corridors by id — `/Road/{ids}`.
 pub struct RoadLoader(Arc<Client>);
 
@@ -502,4 +488,82 @@ impl Loader<String> for StopDisruptionLoader {
         });
         collect_per_key(futures_util::future::join_all(requests).await)
     }
+}
+
+/// The feeds that take no arguments, keyed by which one.
+///
+/// TfL offers no way to ask these for a subset, so there is exactly one request
+/// to make and the only thing worth batching is asking for it twice. Routing
+/// them through a loader rather than straight at the client means every read in
+/// the graph takes the same path — resolver, loader, request — and asking for
+/// the vocabulary in two branches of a query costs one request rather than two.
+///
+/// The response is kept as raw JSON because these feeds return unrelated
+/// shapes and a loader has one value type. Each caller decodes its own.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum WholeList {
+    /// `/Line/Meta/Modes` — the mode vocabulary.
+    Modes,
+    /// `/Line/Meta/Severity` — line severity codes.
+    LineSeverities,
+    /// `/Road/Meta/Severities` — road severity words.
+    RoadSeverities,
+    /// `/StopPoint/Meta/StopTypes` — NaPTAN stop types.
+    StopTypes,
+    /// `/Road` — the 24 managed corridors.
+    Roads,
+    /// `/AirQuality` — the pollution forecast.
+    AirQuality,
+    /// `/Occupancy/ChargeConnector` — every EV connector's status.
+    ChargeConnectors,
+    /// `/Occupancy/CarPark` — car park occupancy.
+    CarParks,
+    /// `/BikePoint` — every docking station.
+    BikePoints,
+}
+
+pub struct WholeListLoader(Arc<Client>);
+
+impl Loader<WholeList> for WholeListLoader {
+    type Value = Fetched<serde_json::Value>;
+    type Error = LoadError;
+
+    async fn load(
+        &self,
+        keys: &[WholeList],
+    ) -> Result<HashMap<WholeList, Self::Value>, Self::Error> {
+        let requests = keys.iter().map(async |key| {
+            let path = match key {
+                WholeList::Modes => "/Line/Meta/Modes",
+                WholeList::LineSeverities => "/Line/Meta/Severity",
+                WholeList::RoadSeverities => "/Road/Meta/Severities",
+                WholeList::StopTypes => "/StopPoint/Meta/StopTypes",
+                WholeList::Roads => "/Road",
+                WholeList::AirQuality => "/AirQuality",
+                WholeList::ChargeConnectors => "/Occupancy/ChargeConnector",
+                WholeList::CarParks => "/Occupancy/CarPark",
+                WholeList::BikePoints => "/BikePoint",
+            };
+            (*key, self.0.get::<serde_json::Value>(path, &[]).await)
+        });
+        collect_per_key(futures_util::future::join_all(requests).await)
+    }
+}
+
+/// Fetches one of the argument-less feeds and decodes it.
+pub async fn whole_list<T: serde::de::DeserializeOwned + Default>(
+    ctx: &Context<'_>,
+    which: WholeList,
+) -> Result<T, GqlError> {
+    let raw = fetched(
+        loaders(ctx)
+            .whole_list
+            .load_one(which)
+            .await
+            .map_err(to_gql_error)?,
+    )?;
+    // These feeds are argument-less and stable in shape; a change upstream
+    // degrades to empty rather than failing a query that asked for other things
+    // too.
+    Ok(serde_json::from_value(raw).unwrap_or_default())
 }

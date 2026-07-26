@@ -2578,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "tfl-cli"
-version = "0.5.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "askama",

@@ -10,27 +10,41 @@ use tfl_cli::{
     output::Output,
 };
 
+/// Runs the MCP server unless a subcommand says otherwise.
+///
+/// Serving is the whole job — the subcommands exist to inspect and debug it,
+/// not the other way round.
 #[derive(Parser)]
 #[command(name = "tfl", version, about = "London transport, as GraphQL and MCP")]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
+    #[command(flatten)]
+    serve: ServeArgs,
+}
+
+#[derive(clap::Args, Clone)]
+struct ServeArgs {
+    /// Serve over HTTP on this address instead of stdio, e.g. `0.0.0.0:8080`.
+    #[arg(long, value_name = "ADDR", global = true)]
+    http: Option<String>,
+    /// Also serve a plain GraphQL endpoint at /graphql.
+    #[arg(long, global = true)]
+    graphql: bool,
+    /// Also serve the GraphiQL IDE at /, and open a browser.
+    #[arg(long, global = true)]
+    graphiql: bool,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Run as an MCP server.
-    Mcp {
-        /// Serve over HTTP on this address instead of stdio, e.g. `0.0.0.0:8080`.
-        #[arg(long, value_name = "ADDR")]
-        http: Option<String>,
-        /// Also serve a plain GraphQL endpoint at /graphql.
-        #[arg(long)]
-        graphql: bool,
-        /// Also serve the GraphiQL IDE at /, and open a browser.
-        #[arg(long)]
-        graphiql: bool,
-    },
+    /// Deprecated: running the server is the default, so `tfl --http …` does
+    /// the same thing.
+    ///
+    /// Kept and hidden so a deployment pinning an image tag independently of
+    /// its arguments cannot break on a version bump alone.
+    #[command(hide = true)]
+    Mcp,
     /// Run a GraphQL query. Use `tfl schema` to see what is available.
     Query {
         /// The query. Reads stdin if omitted.
@@ -38,28 +52,6 @@ enum Commands {
     },
     /// Print the GraphQL schema as SDL.
     Schema,
-    /// Live arrivals at a stop, soonest first.
-    Arrivals {
-        /// NaPTAN id, e.g. `940GZZLUKSX`, or a station name to search for.
-        stop: String,
-        /// How many to show.
-        #[arg(long, default_value_t = 10)]
-        limit: usize,
-    },
-    /// Status of every line on a mode.
-    Status {
-        /// Modes to report on.
-        #[arg(long, default_value = "tube,dlr,overground,elizabeth-line")]
-        modes: String,
-        /// Only show lines that are not running a good service.
-        #[arg(long)]
-        disrupted: bool,
-    },
-    /// Find stops by name.
-    Search {
-        /// A station or stop name, e.g. `Kings Cross`.
-        query: String,
-    },
     /// Generate a shell completion script.
     Completions {
         #[arg(value_enum)]
@@ -89,33 +81,36 @@ async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let app_key = app_key_from_env();
 
-    match cli.command {
-        Commands::Mcp {
+    // No subcommand, or the deprecated `mcp` one: serve.
+    if matches!(cli.command, None | Some(Commands::Mcp)) {
+        // Checked before binding: a server that starts and then fails every
+        // query is worse than one that refuses to start.
+        verify_app_key(&app_key).await?;
+        let ServeArgs {
             http,
             graphql: serve_graphql,
             graphiql,
-        } => {
-            // Checked before binding: a server that starts and then fails every
-            // query is worse than one that refuses to start.
-            verify_app_key(&app_key).await?;
-            match http {
-                Some(addr) => {
-                    mcp::run_http_server(
-                        &addr,
-                        app_key,
-                        HttpSurfaces {
-                            mcp: true,
-                            graphql: serve_graphql || graphiql,
-                            graphiql,
-                            browser: graphiql,
-                        },
-                    )
-                    .await
-                }
-                None => mcp::run_server(app_key).await,
+        } = cli.serve;
+        return match http {
+            Some(addr) => {
+                mcp::run_http_server(
+                    &addr,
+                    app_key,
+                    HttpSurfaces {
+                        mcp: true,
+                        graphql: serve_graphql || graphiql,
+                        graphiql,
+                        browser: graphiql,
+                    },
+                )
+                .await
             }
-        }
+            None => mcp::run_server(app_key).await,
+        };
+    }
 
+    match cli.command.expect("serving already returned") {
+        Commands::Mcp => unreachable!("handled above"),
         Commands::Schema => {
             println!("{}", graphql::sdl());
             Ok(())
@@ -137,88 +132,11 @@ async fn run() -> anyhow::Result<()> {
             Ok(())
         }
 
-        // The remaining commands are thin wrappers over the same graph the MCP
-        // server exposes, so there is one implementation of every join.
-        Commands::Arrivals { stop, limit } => {
-            // A NaPTAN id is uppercase alphanumeric; anything else is a name to
-            // search for, so `tfl arrivals "Kings Cross"` does what you mean.
-            let looks_like_an_id = stop
-                .chars()
-                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
-            let entry = if looks_like_an_id {
-                format!("stopPoint(id: {})", quote(&stop))
-            } else {
-                format!("searchStopPoints(query: {})", quote(&stop))
-            };
-            run_query(
-                &format!(
-                    "{{ {entry} {{ commonName \
-                       arrivals(first: {limit}) {{ timeToStation towards platformName \
-                       line {{ name }} }} }} }}"
-                ),
-                app_key,
-            )
-            .await
-        }
-
-        Commands::Status { modes, disrupted } => {
-            let modes = modes
-                .split(',')
-                .map(|m| quote(m.trim()))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let field = if disrupted {
-                "disruptedLines"
-            } else {
-                "linesByMode"
-            };
-            run_query(
-                &format!(
-                    "{{ {field}(modes: [{modes}]) {{ id name mode \
-                       statuses {{ description reason }} }} }}"
-                ),
-                app_key,
-            )
-            .await
-        }
-
-        Commands::Search { query } => {
-            run_query(
-                &format!(
-                    "{{ searchStopPoints(query: {}) {{ id commonName modes lat lon }} }}",
-                    quote(&query)
-                ),
-                app_key,
-            )
-            .await
-        }
-
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "tfl", &mut std::io::stdout());
             Ok(())
         }
     }
-}
-
-/// Renders a value as a GraphQL string literal.
-///
-/// Station names contain apostrophes and quotes — `King's Cross`, `Shepherd's
-/// Bush (Market)` — and an unescaped one would end the literal early and make
-/// the rest of the query mean something else.
-fn quote(value: &str) -> String {
-    serde_json::Value::String(value.to_string()).to_string()
-}
-
-async fn run_query(query: &str, app_key: Option<String>) -> anyhow::Result<()> {
-    let response = graphql::schema()
-        .execute(graphql::request(query, client(app_key)?))
-        .await;
-    if response.is_err() {
-        let errors: Vec<String> = response.errors.iter().map(|e| e.message.clone()).collect();
-        anyhow::bail!("{}", errors.join("; "));
-    }
-    Output::ok(response.data.into_json()?).print();
-    Ok(())
 }
 
 fn client(app_key: Option<String>) -> anyhow::Result<Arc<Client>> {
@@ -242,15 +160,4 @@ async fn verify_app_key(app_key: &Option<String>) -> anyhow::Result<()> {
         .check_credentials()
         .await
         .map_err(|e| anyhow::anyhow!("{e}. Unset TFL_APP_KEY to use TfL anonymously."))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn station_names_with_apostrophes_stay_inside_the_literal() {
-        assert_eq!(quote("King's Cross"), "\"King's Cross\"");
-        assert_eq!(quote("a\"b"), "\"a\\\"b\"");
-    }
 }
