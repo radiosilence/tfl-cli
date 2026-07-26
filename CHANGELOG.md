@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- The container image is now a statically linked musl binary on bare `scratch`
+  (~20MB) instead of a `debian-slim` base that recompiled the binary on every
+  build. CI builds the musl binary once per architecture and feeds it straight
+  into the image, so the Dockerfile no longer runs `cargo build` at all. The
+  CA bundle is still copied in at `/etc/ssl/certs/ca-certificates.crt` because
+  `rustls-platform-verifier` needs the system trust store for outbound calls
+  to `api.tfl.gov.uk`.
+- CI now builds and runs on every PR — image and binaries included — with
+  publishing (registry push, GitHub release) gated to pushes on `main`. A
+  broken Dockerfile or build now fails before merge instead of after.
+- Docker layer caching was dropped from the image job: nothing compiles
+  inside the image anymore, and `mode=max` was filling the repo-wide 10GB
+  GitHub Actions cache shared with `Swatinem/rust-cache`.
+
 ## 1.3.1
 
 ### Fixed

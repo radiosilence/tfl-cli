@@ -3,20 +3,59 @@
 # arriving per request via the X-Tfl-App-Key header. No key is also fine: TfL
 # serves anonymous callers at 50 requests/minute.
 #
-# A plain Rust build; nothing here needs a native toolchain, and codegen is not
-# part of it — crates/tfl-api-client/src/generated is committed.
+# Statically linked against musl and run on bare `scratch`. tfl-mcp is an HTTP
+# *client* (it calls api.tfl.gov.uk), so unlike a pure server image the CA
+# bundle must be present at runtime for rustls-platform-verifier to find the
+# system trust store.
 
-FROM rust:1-bookworm AS build
-WORKDIR /app
-COPY . .
-RUN cargo build --release --locked -p tfl-mcp
+# Selects which stage supplies the binary. Must be declared before the first
+# FROM to be usable in one. `docker build .` compiles from source; CI passes
+# prebuilt to reuse the binary the release matrix already built.
+ARG BIN_SOURCE=source
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+# Source build.
+FROM rust:1-slim AS builder
+
+# musl-tools for the static target; cmake/clang for aws-lc-sys, the rustls
+# crypto backend, which is a C/C++ build.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    musl-tools musl-dev cmake clang ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=build /app/target/release/tfl /usr/local/bin/tfl
+
+RUN rustup target add $(uname -m)-unknown-linux-musl
+
+WORKDIR /build
+COPY . .
+
+RUN TARGET=$(uname -m)-unknown-linux-musl && \
+    cargo build --release --locked -p tfl-mcp --target $TARGET && \
+    cp target/$TARGET/release/tfl /tmp/tfl
+
+FROM scratch AS bin-source
+COPY --from=builder /tmp/tfl /tfl
+
+FROM scratch AS bin-prebuilt
+ARG TARGETARCH
+COPY dist/tfl-linux-${TARGETARCH}-musl /tfl
+
+# Runtime stage. BuildKit only builds the stage this resolves to, so the
+# source build is skipped entirely when BIN_SOURCE=prebuilt.
+FROM bin-${BIN_SOURCE}
+
+# rustls-platform-verifier reads the system trust store, so the bundle has to
+# be in the image. Sourced from the builder rather than pinned separately, so
+# it refreshes whenever the base image does.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
 EXPOSE 8080
-RUN useradd --system --uid 10001 --create-home app
-USER app
-ENTRYPOINT ["tfl"]
+
+LABEL org.opencontainers.image.vendor="James Cleveland"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.source="https://github.com/radiosilence/tfl-mcp"
+
+# scratch has no /etc/passwd, so this must be a raw numeric uid rather than a
+# name — matches the uid the previous debian-slim image's `app` user had.
+USER 10001:10001
+
+ENTRYPOINT ["/tfl"]
 CMD ["--http", "0.0.0.0:8080", "--graphql"]
