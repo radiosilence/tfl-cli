@@ -25,6 +25,14 @@
   car park" is knowingly unanswerable rather than quietly wrong.
 - Complexity multipliers added to `chargeConnectors` and `carParks`, the two
   largest unfiltered lists, which carried none.
+- A failed fetch no longer reads as a confident empty answer. `load_batch`'s
+  retry path discarded every error and returned `Ok` regardless, so a revoked
+  key produced twenty nulls rather than a failure; and a per-key failure was
+  dropped from the loader's map, which every resolver turned into an empty
+  list — so one stop's arrivals timing out beside working siblings reported
+  "no trains due", and a failed disruption fetch reported good service.
+- The journey rescue search never ran when TfL returned no candidates, which
+  is the case it exists for.
 
 ## 0.5.0
 
