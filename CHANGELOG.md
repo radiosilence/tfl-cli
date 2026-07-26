@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **A stale `Cargo.lock` no longer reaches the image build.** `check` now tests
+  with `--locked` as well as building with it, so a lockfile that has drifted
+  from `Cargo.toml` fails in the pull request rather than in the Docker build.
+- **A version tag is never cut without an image behind it.** `publish` now waits
+  for the image builds as well as the tarballs. Previously they ran in parallel,
+  so a failed image build still produced a GitHub release with nothing to pull.
+
 ## 1.1.0
 
 ### Fixed
