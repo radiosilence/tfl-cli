@@ -142,7 +142,7 @@ impl TflMcp {
     #[tool(
         name = "tfl",
         title = "TfL",
-        description = "Execute a GraphQL query against London transport (TfL). Use for anything about getting around London: live arrivals and departures, tube/bus/DLR/Overground/Elizabeth line status and disruptions, stations and stops, journey planning between any two places with times and fares, step-free and accessibility routing, and Santander Cycles docking stations. Get the schema from `tfl_schema` first. Variables are a JSON string."
+        description = "Execute a GraphQL query against London transport (TfL). Use for anything about getting around London or conditions in it: live arrivals and departures; tube/bus/DLR/Overground/Elizabeth line status and disruptions; stations and stops; journey planning between any two places with times, fares and step-free routing; Santander Cycles docking stations; road traffic and closures on the A406, A2 and other major roads; air quality and pollution forecasts; licensed minicab and taxi operators; electric-vehicle charge points; car parks; and road collision history. Get the schema from `tfl_schema` first. Variables are a JSON string."
     )]
     async fn tfl(
         &self,
@@ -188,10 +188,16 @@ impl ServerHandler for TflMcp {
                 "London transport, as a GraphQL API. Read the schema once with \
                  `tfl_schema`, then query with `tfl`. Variables go as a JSON string.\n\n\
                  Covers live arrivals, line status and disruptions, stations and the \
-                 stops on a line, journey planning between any two places with times \
-                 and fares, and Santander Cycles docking stations. Reach for it for \
-                 anything about getting around London, including \"how do I get to\", \
-                 \"is the tube working\" and \"where can I get a bike\".\n\n\
+                 stops on a line in travel order, journey planning with times, fares \
+                 and step-free routing, Santander Cycles, road traffic and closures, \
+                 air quality, minicab operators, EV charge points, car parks and \
+                 road collision history. Reach for it for anything about getting \
+                 around London or conditions in it — \"how do I get to\", \"is the \
+                 tube working\", \"where can I get a bike\", \"how is the traffic on \
+                 the A406\", \"is the air bad today\", \"get me a cab\".\n\n\
+                 `now` gives the time in London and costs no request. TfL's own \
+                 timestamps carry no timezone, so read it before deciding whether a \
+                 departure is soon.\n\n\
                  The graph is joined on TfL's own foreign keys and everything below a \
                  list is batched, so ask for what you need in ONE query rather than \
                  looping: selecting `line { name }` across sixty arrivals costs one \

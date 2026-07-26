@@ -328,3 +328,59 @@ async fn bike_points_are_fetched_once_and_occupancy_batched() {
         occupancy[0]
     );
 }
+
+#[tokio::test]
+async fn a_failed_fetch_beside_a_working_one_is_an_error_not_an_empty_answer() {
+    // The worst failure this API can have. Ask about two stops at once, let one
+    // arrivals request fail, and the naive behaviour is that the failed stop
+    // reports `arrivals: []` — read by anyone as "no trains due" — while its
+    // sibling answers normally and lends the whole response an air of success.
+    // The same mechanism made a failed disruption fetch read as good service.
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/StopPoint/(GOOD|BAD)$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            { "naptanId": "GOOD", "commonName": "Working" },
+            { "naptanId": "BAD", "commonName": "Broken" },
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/StopPoint/GOOD/Arrivals"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(arrivals()))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/StopPoint/BAD/Arrivals"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("upstream is having a moment"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/Line/.+/Status$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+        .mount(&server)
+        .await;
+
+    let response = graphql::schema()
+        .execute(graphql::request(
+            r#"{ good: stopPoint(id: "GOOD") { arrivals { timeToStation } }
+                 bad:  stopPoint(id: "BAD")  { arrivals { timeToStation } } }"#,
+            client(&server),
+        ))
+        .await;
+
+    assert!(
+        !response.errors.is_empty(),
+        "the failed stop must surface an error rather than an empty list"
+    );
+    let reported = response
+        .errors
+        .iter()
+        .any(|e| e.message.contains("500") || e.message.to_lowercase().contains("error"));
+    assert!(
+        reported,
+        "the error should say what went wrong: {:?}",
+        response.errors
+    );
+}

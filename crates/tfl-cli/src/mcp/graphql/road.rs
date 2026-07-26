@@ -8,7 +8,7 @@
 use async_graphql::{Context, Object, Result};
 use tfl_api_client::models;
 
-use super::loaders::{loaders, to_gql_error};
+use super::loaders::{fetched, loaders, to_gql_error};
 
 /// One of TfL's managed road corridors, e.g. the A406 or the A2.
 pub struct Road(pub models::RoadCorridor);
@@ -51,15 +51,12 @@ impl Road {
         let Some(id) = self.0.id.clone() else {
             return Ok(Vec::new());
         };
-        Ok(loaders(ctx)
+        let loaded = loaders(ctx)
             .road_disruption
             .load_one(id)
             .await
-            .map_err(to_gql_error)?
-            .unwrap_or_default()
-            .into_iter()
-            .map(RoadDisruption)
-            .collect())
+            .map_err(to_gql_error)?;
+        Ok(fetched(loaded)?.into_iter().map(RoadDisruption).collect())
     }
 }
 

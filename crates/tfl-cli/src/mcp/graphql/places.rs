@@ -10,7 +10,7 @@ use tfl_api_client::models;
 
 use super::{
     bike::distance_metres,
-    loaders::{loaders, to_gql_error},
+    loaders::{fetched, loaders, to_gql_error},
 };
 
 /// An electric-vehicle charging connector.
@@ -217,12 +217,13 @@ pub async fn search(
     borough: Option<&str>,
     first: usize,
 ) -> Result<Vec<Accident>> {
-    let all = loaders(ctx)
-        .accidents
-        .load_one(year)
-        .await
-        .map_err(to_gql_error)?
-        .unwrap_or_default();
+    let all = fetched(
+        loaders(ctx)
+            .accidents
+            .load_one(year)
+            .await
+            .map_err(to_gql_error)?,
+    )?;
 
     let mut matched: Vec<(f64, models::AccidentDetail)> = Vec::new();
     for accident in all {
@@ -244,8 +245,6 @@ pub async fn search(
         {
             continue;
         }
-        // Sorted by distance when a location was given, else by date, so
-        // `first` returns the relevant ones rather than an arbitrary slice.
         let rank = match (near, accident.lat, accident.lon) {
             (Some(origin), Some(lat), Some(lon)) => {
                 let metres = distance_metres(origin, (lat, lon));
@@ -255,12 +254,22 @@ pub async fn search(
                 metres
             }
             (Some(_), _, _) => continue,
-            (None, _, _) => 0.0,
+            // No location to rank by. Ranking everything equally would make
+            // `first` an arbitrary slice of TfL's own ordering while the field
+            // claimed to be sorted, so the date is used instead and the
+            // description says so.
+            (None, _, _) => f64::NAN,
         };
         matched.push((rank, accident));
     }
 
-    matched.sort_by(|a, b| a.0.total_cmp(&b.0));
+    if near.is_some() {
+        matched.sort_by(|a, b| a.0.total_cmp(&b.0));
+    } else {
+        // Most recent first. String comparison is the right one here: TfL's
+        // dates are ISO 8601 in a fixed zone, so lexical order is chronological.
+        matched.sort_by(|a, b| b.1.date.cmp(&a.1.date));
+    }
     matched.truncate(first);
     Ok(matched
         .into_iter()

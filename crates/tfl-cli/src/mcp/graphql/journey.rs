@@ -363,25 +363,33 @@ impl JourneyPlan {
         from: Vec<LocationOption>,
         to: Vec<LocationOption>,
     ) -> Self {
-        if !self.from_options.is_empty() {
+        // Merged whenever anything was found. The previous emptiness check
+        // discarded rescued stations a second time, so a side TfL had no
+        // suggestions for stayed empty even once the search had answered it.
+        if !from.is_empty() {
             self.from_options.extend(from);
             sort_and_truncate(&mut self.from_options, MAX_OPTIONS);
         }
-        if !self.to_options.is_empty() {
+        if !to.is_empty() {
             self.to_options.extend(to);
             sort_and_truncate(&mut self.to_options, MAX_OPTIONS);
         }
         self
     }
 
-    /// Whether `from` was the ambiguous side.
+    /// Whether the stop-point rescue search is worth running for `from`.
+    ///
+    /// True whenever TfL rejected the request, not merely when it offered
+    /// candidates. Gating on a non-empty list defeated the entire mechanism in
+    /// the case it exists for: TfL answering `300` with nothing to suggest is
+    /// exactly when a search for the term is most likely to find the station.
     pub fn from_was_ambiguous(&self) -> bool {
-        !self.from_options.is_empty()
+        self.ambiguous
     }
 
-    /// Whether `to` was the ambiguous side.
+    /// Whether the stop-point rescue search is worth running for `to`.
     pub fn to_was_ambiguous(&self) -> bool {
-        !self.to_options.is_empty()
+        self.ambiguous
     }
 
     pub fn from_ambiguous(body: &str) -> Self {
@@ -554,6 +562,33 @@ mod tests {
             "the value must be echoed verbatim so it can be passed back"
         );
         assert!(!plan.to_options[1].is_station);
+    }
+
+    #[test]
+    fn a_rescued_station_survives_an_empty_candidate_list() {
+        // TfL answering 300 with nothing to suggest is precisely when the
+        // stop-point search matters, and it was the one case where the result
+        // was thrown away.
+        let plan = JourneyPlan::from_ambiguous(
+            r#"{"fromLocationDisambiguation":{"disambiguationOptions":[]}}"#,
+        );
+        assert!(
+            plan.from_was_ambiguous(),
+            "a 300 warrants the rescue search"
+        );
+
+        let rescued = LocationOption {
+            name: Some("King's Cross".into()),
+            value: Some("940GZZLUKSX".into()),
+            place_type: Some("NaptanMetroStation".into()),
+            match_quality: Some(1001),
+            lat: None,
+            lon: None,
+            is_station: true,
+        };
+        let merged = plan.with_station_options(vec![rescued], Vec::new());
+        assert_eq!(merged.from_options.len(), 1);
+        assert_eq!(merged.from_options[0].value.as_deref(), Some("940GZZLUKSX"));
     }
 
     #[test]

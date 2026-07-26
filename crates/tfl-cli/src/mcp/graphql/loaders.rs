@@ -127,11 +127,31 @@ pub fn loaders<'a>(ctx: &Context<'a>) -> &'a Loaders {
     ctx.data_unchecked::<Loaders>()
 }
 
+/// One key's result: what was fetched, or why it could not be.
+///
+/// Loaders that fan out per key return this so a resolver can tell an empty
+/// answer from a failed one. `DataLoader` reports an absent key as `None`,
+/// which is indistinguishable from a successful empty response — fine for "no
+/// such stop", catastrophic for "no disruptions".
+pub type Fetched<T> = std::result::Result<T, String>;
+
 /// A loader error, shared between everyone waiting on the same batch.
 ///
 /// `Loader::Error` must be `Clone` and [`tfl_api_client::Error`] is not, so the
 /// error is wrapped rather than duplicated.
 pub type LoadError = Arc<Error>;
+
+/// Unwraps a per-key fetch, turning a failure into a GraphQL error rather than
+/// an empty answer.
+pub fn fetched<T: Default>(value: Option<Fetched<T>>) -> Result<T, GqlError> {
+    match value {
+        Some(Ok(found)) => Ok(found),
+        Some(Err(error)) => Err(GqlError::new(error)),
+        // Genuinely absent — no such key — which is an empty answer, not a
+        // failure.
+        None => Ok(T::default()),
+    }
+}
 
 /// Converts a loader error into a GraphQL one.
 ///
@@ -160,7 +180,25 @@ where
             tracing::debug!(%error, keys = keys.len(), "batch rejected, retrying individually");
             let retries = keys.iter().map(|key| fetch(vec![key.clone()]));
             let results = futures_util::future::join_all(retries).await;
-            Ok(results.into_iter().flatten().flatten().collect())
+
+            // Discarding the individual errors would make a revoked key
+            // indistinguishable from a typo'd id: twenty 403s would come back
+            // as twenty nulls and an untroubled response. A retry that fails
+            // for *every* key is not one bad id, so the failure is reported.
+            let mut items = Vec::new();
+            let mut first_error = None;
+            for result in results {
+                match result {
+                    Ok(found) => items.extend(found),
+                    Err(error) => {
+                        first_error.get_or_insert(error);
+                    }
+                }
+            }
+            match first_error {
+                Some(error) if items.is_empty() => Err(Arc::new(error)),
+                _ => Ok(items),
+            }
         }
         Err(error) => Err(Arc::new(error)),
     }
@@ -236,7 +274,7 @@ impl Loader<String> for StopPointLoader {
 pub struct ArrivalsLoader(Arc<Client>);
 
 impl Loader<String> for ArrivalsLoader {
-    type Value = Vec<models::Prediction>;
+    type Value = Fetched<Vec<models::Prediction>>;
     type Error = LoadError;
 
     async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
@@ -252,7 +290,7 @@ impl Loader<String> for ArrivalsLoader {
 pub struct LineStopPointsLoader(Arc<Client>);
 
 impl Loader<String> for LineStopPointsLoader {
-    type Value = Vec<models::StopPoint>;
+    type Value = Fetched<Vec<models::StopPoint>>;
     type Error = LoadError;
 
     async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
@@ -268,7 +306,7 @@ impl Loader<String> for LineStopPointsLoader {
 pub struct DisruptionLoader(Arc<Client>);
 
 impl Loader<String> for DisruptionLoader {
-    type Value = Vec<models::Disruption>;
+    type Value = Fetched<Vec<models::Disruption>>;
     type Error = LoadError;
 
     async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
@@ -299,24 +337,23 @@ fn key_by<T>(items: Vec<T>, key: impl Fn(&T) -> Option<String>) -> HashMap<Strin
 /// One stop with no arrivals should not blank out the rest of the query.
 fn collect_per_key<K: std::hash::Hash + Eq + std::fmt::Debug, T>(
     results: Vec<(K, Result<T, Error>)>,
-) -> Result<HashMap<K, T>, LoadError> {
-    let mut first_error = None;
-    let mut loaded = HashMap::new();
-    for (key, result) in results {
-        match result {
-            Ok(value) => {
-                loaded.insert(key, value);
-            }
-            Err(error) => {
+) -> Result<HashMap<K, Fetched<T>>, LoadError> {
+    // Failures are kept per key rather than dropped. Dropping one made it
+    // absent from the map, which `DataLoader` reports as "no value" and every
+    // resolver turned into an empty list — so a stop whose arrivals request
+    // timed out beside siblings that succeeded read as "no trains due", and a
+    // failed disruption fetch read as good service. For a live transport tool
+    // that is the worst available answer, and it looked identical to the truth.
+    Ok(results
+        .into_iter()
+        .map(|(key, result)| {
+            let value = result.map_err(|error| {
                 tracing::debug!(%error, ?key, "request failed within a batch");
-                first_error.get_or_insert(error);
-            }
-        }
-    }
-    match first_error {
-        Some(error) if loaded.is_empty() => Err(Arc::new(error)),
-        _ => Ok(loaded),
-    }
+                error.to_string()
+            });
+            (key, value)
+        })
+        .collect())
 }
 
 /// Loads live docking-station counts — `/Occupancy/BikePoints/{ids}`.
@@ -396,7 +433,7 @@ impl Loader<String> for RoadLoader {
 pub struct RoadDisruptionLoader(Arc<Client>);
 
 impl Loader<String> for RoadDisruptionLoader {
-    type Value = Vec<models::RoadDisruption>;
+    type Value = Fetched<Vec<models::RoadDisruption>>;
     type Error = LoadError;
 
     async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
@@ -433,7 +470,7 @@ impl Loader<String> for ChargeConnectorLoader {
 pub struct AccidentsLoader(Arc<Client>);
 
 impl Loader<i32> for AccidentsLoader {
-    type Value = Vec<models::AccidentDetail>;
+    type Value = Fetched<Vec<models::AccidentDetail>>;
     type Error = LoadError;
 
     async fn load(&self, keys: &[i32]) -> Result<HashMap<i32, Self::Value>, Self::Error> {
@@ -449,7 +486,7 @@ impl Loader<i32> for AccidentsLoader {
 pub struct StopDisruptionLoader(Arc<Client>);
 
 impl Loader<String> for StopDisruptionLoader {
-    type Value = Vec<models::DisruptedPoint>;
+    type Value = Fetched<Vec<models::DisruptedPoint>>;
     type Error = LoadError;
 
     async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {

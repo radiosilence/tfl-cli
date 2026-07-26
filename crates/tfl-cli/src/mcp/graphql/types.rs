@@ -20,7 +20,7 @@
 use async_graphql::{ComplexObject, Context, Object, Result, SimpleObject};
 use tfl_api_client::models;
 
-use super::loaders::{client, loaders, to_gql_error};
+use super::loaders::{client, fetched, loaders, to_gql_error};
 
 /// A London Underground, Overground, Elizabeth line, DLR, tram, bus or river
 /// service.
@@ -85,11 +85,7 @@ impl Line {
             .load_one(id)
             .await
             .map_err(to_gql_error)?;
-        Ok(loaded
-            .unwrap_or_default()
-            .into_iter()
-            .map(Disruption)
-            .collect())
+        Ok(fetched(loaded)?.into_iter().map(Disruption).collect())
     }
 
     /// The stops this line serves, in the order you would pass them.
@@ -141,11 +137,7 @@ impl Line {
             .load_one(id)
             .await
             .map_err(to_gql_error)?;
-        Ok(loaded
-            .unwrap_or_default()
-            .into_iter()
-            .map(StopPoint::new)
-            .collect())
+        Ok(fetched(loaded)?.into_iter().map(StopPoint::new).collect())
     }
 }
 
@@ -400,12 +392,12 @@ impl StopPoint {
         let Some(id) = self.lookup_id() else {
             return Ok(Vec::new());
         };
-        let mut arrivals = loaders(ctx)
+        let loaded = loaders(ctx)
             .arrivals
             .load_one(id)
             .await
-            .map_err(to_gql_error)?
-            .unwrap_or_default();
+            .map_err(to_gql_error)?;
+        let mut arrivals = fetched(loaded)?;
 
         // TfL returns predictions unordered; soonest-first is what any caller
         // actually wants.
@@ -423,15 +415,12 @@ impl StopPoint {
         let Some(id) = self.lookup_id() else {
             return Ok(Vec::new());
         };
-        Ok(loaders(ctx)
+        let loaded = loaders(ctx)
             .stop_disruption
             .load_one(id)
             .await
-            .map_err(to_gql_error)?
-            .unwrap_or_default()
-            .into_iter()
-            .map(StopDisruption)
-            .collect())
+            .map_err(to_gql_error)?;
+        Ok(fetched(loaded)?.into_iter().map(StopDisruption).collect())
     }
 
     /// Stations reachable from here on a given line without changing.
@@ -518,13 +507,31 @@ impl StopDisruption {
         self.0.to_date.as_deref()
     }
 
-    /// Whether the stop is closed outright rather than merely affected.
-    async fn is_blocked(&self) -> Option<bool> {
+    /// TfL's closure code, e.g. `partClosure`, `fullClosure`. Null when the
+    /// stop is open.
+    async fn closure_text(&self) -> Option<&str> {
         self.0
-            .station_atco_code
-            .as_ref()
-            .map(|_| false)
-            .or(Some(false))
+            .closure_text
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+    }
+
+    /// Whether TfL published a closure of any kind here.
+    ///
+    /// True for a *partial* closure too — Barons Court reports
+    /// `closureText: "partClosure"` while still serving eastbound trains — so
+    /// read [`Self::closure_text`] before telling anyone the station is shut.
+    async fn is_closed(&self) -> bool {
+        self.0
+            .closure_text
+            .as_deref()
+            .is_some_and(|t| !t.trim().is_empty())
+    }
+
+    /// How TfL categorises this, e.g. `PlannedWork`, `RealTime`.
+    async fn appearance(&self) -> Option<&str> {
+        self.0.appearance.as_deref()
     }
 }
 

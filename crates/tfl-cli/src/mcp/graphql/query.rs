@@ -241,14 +241,24 @@ impl QueryRoot {
     /// Live arrivals for a vehicle, wherever it is going next.
     ///
     /// Takes TfL vehicle ids — a bus registration like `LX58CFV`, or a tube set
-    /// number. Batched 20 per request.
+    /// number. Sent 25 per request, which is TfL's documented maximum.
     async fn vehicle_arrivals(
         &self,
         ctx: &Context<'_>,
         #[graphql(desc = "Vehicle ids, e.g. [\"LX58CFV\"].")] ids: Vec<String>,
     ) -> Result<Vec<Prediction>> {
+        // TfL documents "max approx. 25 ids" for this endpoint and there is no
+        // loader in front of it, so the chunking has to happen here rather than
+        // being inherited.
+        const VEHICLE_BATCH: usize = 25;
         let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-        let arrivals = client(ctx).vehicle_get(&ids).await.map_err(to_gql_error)?;
+        let chunks = ids
+            .chunks(VEHICLE_BATCH)
+            .map(|chunk| client(ctx).vehicle_get(chunk));
+        let mut arrivals = Vec::new();
+        for result in futures_util::future::join_all(chunks).await {
+            arrivals.extend(result.map_err(to_gql_error)?);
+        }
         Ok(arrivals.into_iter().map(Prediction).collect())
     }
 
@@ -305,7 +315,7 @@ impl QueryRoot {
         )]
         preference: Option<String>,
         #[graphql(
-            desc = "Accessibility needs, e.g. [\"noSolidStairs\", \"stepFreeToVehicle\", \"stepFreeToPlatform\"]."
+            desc = "Accessibility needs. TfL accepts exactly: \"noRequirements\", \"noSolidStairs\", \"noEscalators\", \"noElevators\", \"stepFreeToVehicle\", \"stepFreeToPlatform\"."
         )]
         accessibility: Option<Vec<String>>,
         #[graphql(desc = "Walking pace: \"slow\", \"average\", or \"fast\".")]
@@ -430,6 +440,25 @@ impl QueryRoot {
         Ok(places.into_iter().map(BikePoint::new).collect())
     }
 
+    /// The severity words used by **roads**, and what they mean.
+    ///
+    /// The vocabulary for `roadDisruptions(severities:)`. Roads grade severity
+    /// in words where lines use numbers.
+    async fn road_severities(&self, ctx: &Context<'_>) -> Result<Vec<Severity>> {
+        let severities = client(ctx)
+            .road_meta_severities()
+            .await
+            .map_err(to_gql_error)?;
+        Ok(severities
+            .into_iter()
+            .map(|s| Severity {
+                level: s.severity_level,
+                description: s.description,
+                mode: s.mode_name,
+            })
+            .collect())
+    }
+
     /// Every road corridor TfL manages, with current status. One request.
     ///
     /// Twenty-four of them — the A406, the A2 and so on — so this is the whole
@@ -548,6 +577,7 @@ impl QueryRoot {
     /// Around 350 of them, so pass `availableOnly` unless you want the lot.
     /// TfL gives no location on this feed — only status — so use `sourceId` to
     /// recognise a site you already know.
+    #[graphql(complexity = "child_complexity.saturating_mul(50).saturating_add(10)")]
     async fn charge_connectors(
         &self,
         ctx: &Context<'_>,
@@ -574,8 +604,11 @@ impl QueryRoot {
 
     /// How full TfL's car parks are, usually the ones at tube stations.
     ///
-    /// One request. Note this feed is unreliable — TfL returns a 500 for it
-    /// often enough that an error here usually means their problem, not yours.
+    /// One request. Two caveats: TfL carries **no coordinates** on this feed,
+    /// only names, so "the nearest car park" cannot be answered from it; and it
+    /// is unreliable enough that a 500 here usually means their problem rather
+    /// than yours.
+    #[graphql(complexity = "child_complexity.saturating_mul(30).saturating_add(10)")]
     async fn car_parks(&self, ctx: &Context<'_>) -> Result<Vec<CarPark>> {
         let parks = client(ctx).occupancy_get().await.map_err(to_gql_error)?;
         Ok(parks.into_iter().map(CarPark).collect())
@@ -644,10 +677,13 @@ impl QueryRoot {
         Now(chrono::Utc::now().with_timezone(&chrono_tz::Europe::London))
     }
 
-    /// TfL's severity codes and what they mean.
+    /// The severity codes used by **lines**, and what they mean.
     ///
-    /// Explains the numbers on [`super::types::LineStatus`]; 10 is "Good
-    /// Service".
+    /// Explains the numbers on `LineStatus.severity`; 10 is "Good Service".
+    ///
+    /// Not the vocabulary for `roadDisruptions(severities:)`, which takes words
+    /// — see `roadSeverities` — nor for `accidents(severities:)`, which takes
+    /// "Fatal", "Serious" or "Slight".
     async fn severities(&self, ctx: &Context<'_>) -> Result<Vec<Severity>> {
         let severities = client(ctx)
             .line_meta_severity()
