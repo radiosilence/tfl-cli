@@ -13,6 +13,13 @@
 # prebuilt to reuse the binary the release matrix already built.
 ARG BIN_SOURCE=source
 
+# CA bundle lives in its OWN stage, NOT the builder. Copying it out of the
+# builder would make the final image depend on the builder stage, forcing a
+# full cargo build even when BIN_SOURCE=prebuilt — which defeats the point.
+FROM debian:bookworm-slim AS certs
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Source build.
 FROM rust:1-slim AS builder
 
@@ -43,9 +50,9 @@ COPY dist/tfl-linux-${TARGETARCH}-musl /tfl
 FROM bin-${BIN_SOURCE}
 
 # rustls-platform-verifier reads the system trust store, so the bundle has to
-# be in the image. Sourced from the builder rather than pinned separately, so
-# it refreshes whenever the base image does.
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+# be in the image. Sourced from the certs stage, not the builder, so the
+# prebuilt path never triggers a compile.
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 EXPOSE 8080
 
