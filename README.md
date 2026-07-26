@@ -94,13 +94,29 @@ availability in one query:
 ```
 
 **"How do I get there, and is anything in the way?"** — a journey whose legs
-carry their own disruptions:
+carry their own disruptions.
+
+A place name usually needs resolving first. TfL treats "Kings Cross" as
+ambiguous and answers with candidates instead of routes, so ask for both and
+you learn which it was in one round trip:
 
 ```graphql
 { journey(from: "Kings Cross", to: "Brixton", preference: "LeastWalking") {
+    isAmbiguous
+    fromOptions { name value isStation }
     journeys { duration changes fare { totalCost }
       legs { mode duration summary isDisrupted
              disruptions { description } } } } }
+```
+
+`isAmbiguous: true` means `journeys` is empty and the options are the answer —
+stations first, so `fromOptions[0].value` is usually the one meant. Pass it back
+as `from`, and the second query returns routes:
+
+```graphql
+{ journey(from: "940GZZLUKSX", to: "940GZZLUBXN") {
+    journeys { duration changes fare { totalCost }
+      legs { mode duration summary } } } }
 ```
 
 **"Step-free, please."** — accessibility is a first-class argument, and legs

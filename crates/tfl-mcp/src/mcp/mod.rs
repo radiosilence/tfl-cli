@@ -205,11 +205,12 @@ impl ServerHandler for TflMcp {
                  Arrivals are live and go stale within a minute or two — re-query \
                  rather than reusing an earlier answer, and give times as \
                  \"in N minutes\" rather than a clock time unless asked.\n\n\
-                 Journeys take place names directly; there is no need to look up an id \
-                 first. If a name is ambiguous the result carries candidate locations \
-                 instead of routes — pick one and re-query with its `value`, and note \
-                 that a station is usually meant even when a shop of the same name \
-                 scores higher.",
+                 Journeys accept place names, but TfL calls most of them ambiguous \
+                 and answers with candidates instead of routes — \"Kings Cross\" does. \
+                 Select `isAmbiguous` and `fromOptions`/`toOptions` alongside \
+                 `journeys` so one query tells you which happened, then re-query with \
+                 an option's `value`. Stations are listed first and are usually what \
+                 was meant, even when a shop of the same name scores higher.",
             )
     }
 }

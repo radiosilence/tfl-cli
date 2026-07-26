@@ -231,14 +231,10 @@ impl Client {
             __query.push(("journeyPreference", value.to_string()));
         }
         if let Some(value) = &options.mode {
-            for item in value {
-                __query.push(("mode", item.to_string()));
-            }
+            __query.push(("mode", crate::join(value)));
         }
         if let Some(value) = &options.accessibility_preference {
-            for item in value {
-                __query.push(("accessibilityPreference", item.to_string()));
-            }
+            __query.push(("accessibilityPreference", crate::join(value)));
         }
         if let Some(value) = &options.from_name {
             __query.push(("fromName", value.to_string()));
@@ -265,9 +261,7 @@ impl Client {
             __query.push(("adjustment", value.to_string()));
         }
         if let Some(value) = &options.bike_proficiency {
-            for item in value {
-                __query.push(("bikeProficiency", item.to_string()));
-            }
+            __query.push(("bikeProficiency", crate::join(value)));
         }
         if let Some(value) = &options.alternative_cycle {
             __query.push(("alternativeCycle", value.to_string()));
@@ -925,9 +919,7 @@ impl Client {
             __query.push(("radius", value.to_string()));
         }
         if let Some(value) = &options.categories {
-            for item in value {
-                __query.push(("categories", item.to_string()));
-            }
+            __query.push(("categories", crate::join(value)));
         }
         if let Some(value) = &options.include_children {
             __query.push(("includeChildren", value.to_string()));
@@ -1038,9 +1030,7 @@ impl Client {
         let mut __query: Vec<(&str, String)> = Vec::new();
         __query.push(("name", name.to_string()));
         if let Some(value) = &options.types {
-            for item in value {
-                __query.push(("types", item.to_string()));
-            }
+            __query.push(("types", crate::join(value)));
         }
         self.get_list(&__path, &__query).await
     }
@@ -1410,14 +1400,10 @@ impl Client {
             __query.push(("useStopPointHierarchy", value.to_string()));
         }
         if let Some(value) = &options.modes {
-            for item in value {
-                __query.push(("modes", item.to_string()));
-            }
+            __query.push(("modes", crate::join(value)));
         }
         if let Some(value) = &options.categories {
-            for item in value {
-                __query.push(("categories", item.to_string()));
-            }
+            __query.push(("categories", crate::join(value)));
         }
         if let Some(value) = &options.return_lines {
             __query.push(("returnLines", value.to_string()));
@@ -1787,9 +1773,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::ArrivalDeparture>> {
         let __path = format!("/StopPoint/{id}/ArrivalDepartures", id = crate::segment(id));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        for item in line_ids {
-            __query.push(("lineIds", item.to_string()));
-        }
+        __query.push(("lineIds", crate::join(line_ids)));
         self.get_list(&__path, &__query).await
     }
 }
@@ -1832,9 +1816,7 @@ impl Client {
         );
         let mut __query: Vec<(&str, String)> = Vec::new();
         if let Some(value) = &options.service_types {
-            for item in value {
-                __query.push(("serviceTypes", item.to_string()));
-            }
+            __query.push(("serviceTypes", crate::join(value)));
         }
         self.get_list(&__path, &__query).await
     }
@@ -1910,9 +1892,7 @@ impl Client {
         let __path = format!("/StopPoint/{id}/Route", id = crate::segment(id));
         let mut __query: Vec<(&str, String)> = Vec::new();
         if let Some(value) = &options.service_types {
-            for item in value {
-                __query.push(("serviceTypes", item.to_string()));
-            }
+            __query.push(("serviceTypes", crate::join(value)));
         }
         self.get_list(&__path, &__query).await
     }
@@ -1929,9 +1909,7 @@ impl Client {
     ) -> Result<Vec<crate::generated::models::Place>> {
         let __path = format!("/StopPoint/{id}/placeTypes", id = crate::segment(id));
         let mut __query: Vec<(&str, String)> = Vec::new();
-        for item in place_types {
-            __query.push(("placeTypes", item.to_string()));
-        }
+        __query.push(("placeTypes", crate::join(place_types)));
         self.get_list(&__path, &__query).await
     }
 }
