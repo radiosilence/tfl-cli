@@ -523,6 +523,8 @@ pub enum WholeList {
     CarParks,
     /// `/BikePoint` — every docking station.
     BikePoints,
+    /// `/Place/Meta/PlaceTypes` — the place-type vocabulary.
+    PlaceTypes,
 }
 
 pub struct WholeListLoader(Arc<Client>);
@@ -546,6 +548,7 @@ impl Loader<WholeList> for WholeListLoader {
                 WholeList::ChargeConnectors => "/Occupancy/ChargeConnector",
                 WholeList::CarParks => "/Occupancy/CarPark",
                 WholeList::BikePoints => "/BikePoint",
+                WholeList::PlaceTypes => "/Place/Meta/PlaceTypes",
             };
             (*key, self.0.get::<serde_json::Value>(path, &[]).await)
         });
