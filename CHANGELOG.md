@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `StopPoint.crowding` and `StopPoint.crowdingOn(day:)` — how busy a station is
+  right now, and across a normal day in quarter-hours. Answers "is Oxford
+  Circus hell at the moment" and "when is the quietest time to travel".
+
+  None of this is in TfL's Swagger document. The endpoint the spec *does*
+  describe returns a plain stop point with no crowding in it, which is why this
+  looked withdrawn rather than merely undocumented.
+
+  Every figure is relative to that station's own normal, not a headcount, and
+  the field descriptions say so — `0.17` means a sixth of usual traffic, and
+  the numbers are not comparable between stations.
+
 ## 1.0.1
 
 Identical to 1.0.0 in behaviour. The 1.0.0 tag was cut from the commit before

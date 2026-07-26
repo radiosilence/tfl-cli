@@ -287,6 +287,37 @@ fn is_reference_data(path: &str) -> bool {
         .any(|prefix| path.starts_with(prefix))
 }
 
+impl Client {
+    /// How busy a station is right now — `/crowding/{naptan}/Live`.
+    ///
+    /// Undocumented: absent from the Swagger document entirely, so it is
+    /// written by hand. The endpoint the spec *does* describe returns a stop
+    /// point with no crowding in it.
+    pub async fn crowding_live<T: serde::de::DeserializeOwned>(&self, naptan: &str) -> Result<T> {
+        self.get(&format!("/crowding/{}/Live", crate::segment(naptan)), &[])
+            .await
+    }
+
+    /// A typical day at a station — `/crowding/{naptan}/{day}`.
+    ///
+    /// `day` is a three-letter abbreviation, e.g. `Mon`. Also undocumented.
+    pub async fn crowding_day<T: serde::de::DeserializeOwned>(
+        &self,
+        naptan: &str,
+        day: &str,
+    ) -> Result<T> {
+        self.get(
+            &format!(
+                "/crowding/{}/{}",
+                crate::segment(naptan),
+                crate::segment(day)
+            ),
+            &[],
+        )
+        .await
+    }
+}
+
 fn decode<T: serde::de::DeserializeOwned>(path: &str, body: &str) -> Result<T> {
     serde_json::from_str(body).map_err(|source| Error::Decode {
         path: path.to_string(),

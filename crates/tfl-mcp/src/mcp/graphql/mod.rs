@@ -6,6 +6,7 @@
 //! here rather than being derived from a spec that does not know about it.
 
 pub mod bike;
+pub mod crowding;
 pub mod environment;
 pub mod journey;
 pub mod loaders;
