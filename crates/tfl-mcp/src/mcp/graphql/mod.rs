@@ -15,6 +15,7 @@ pub mod query;
 pub mod road;
 #[cfg(test)]
 mod tests;
+pub mod timetable;
 pub mod types;
 
 use std::sync::Arc;

@@ -21,6 +21,7 @@
 //! | [`ChargeConnectorLoader`] | `/Occupancy/ChargeConnector/{ids}` | every connector's status in one request |
 //! | [`AccidentsLoader`] | `/AccidentStats/{year}` | a 37MB year downloaded once, not per field |
 //! | [`WholeListLoader`] | the argument-less feeds | each fetched once per query however often it is asked for |
+//! | [`TimetableLoader`] | `/Line/{id}/Timetable/{from}` | one per line/stop/direction, deduplicated across a list |
 //!
 //! Loaders are built per request, so nothing survives between queries: transit
 //! data goes stale in seconds and a cache that outlived the request would serve
@@ -54,6 +55,7 @@ pub struct Loaders {
     pub accidents: DataLoader<AccidentsLoader, HashMapCache>,
     pub stop_disruption: DataLoader<StopDisruptionLoader, HashMapCache>,
     pub whole_list: DataLoader<WholeListLoader, HashMapCache>,
+    pub timetable: DataLoader<TimetableLoader, HashMapCache>,
 }
 
 impl Loaders {
@@ -115,7 +117,8 @@ impl Loaders {
                 cache(),
             )
             .max_batch_size(MAX_IDS),
-            whole_list: DataLoader::with_cache(WholeListLoader(client), spawn, cache()),
+            whole_list: DataLoader::with_cache(WholeListLoader(client.clone()), spawn, cache()),
+            timetable: DataLoader::with_cache(TimetableLoader(client), spawn, cache()),
         }
     }
 }
@@ -566,4 +569,40 @@ pub async fn whole_list<T: serde::de::DeserializeOwned + Default>(
     // degrades to empty rather than failing a query that asked for other things
     // too.
     Ok(serde_json::from_value(raw).unwrap_or_default())
+}
+
+/// Which timetable to fetch.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct TimetableKey {
+    pub line: String,
+    pub from_stop: String,
+    /// `inbound`/`outbound`. Absent asks TfL to decide, which it answers with
+    /// a disambiguation body when it cannot.
+    pub direction: Option<String>,
+}
+
+/// Loads scheduled departures — `/Line/{id}/Timetable/{from}`.
+///
+/// TfL offers no batch form, so this is one request per line, stop and
+/// direction. It is a loader so that asking two branches of a query for the
+/// same schedule — the obvious shape of "first and last train" — costs one.
+pub struct TimetableLoader(Arc<Client>);
+
+impl Loader<TimetableKey> for TimetableLoader {
+    type Value = Fetched<models::TimetableResponse>;
+    type Error = LoadError;
+
+    async fn load(
+        &self,
+        keys: &[TimetableKey],
+    ) -> Result<HashMap<TimetableKey, Self::Value>, Self::Error> {
+        let requests = keys.iter().map(async |key| {
+            let response = self
+                .0
+                .line_timetable_in_direction(&key.line, &key.from_stop, key.direction.as_deref())
+                .await;
+            (key.clone(), response)
+        });
+        collect_per_key(futures_util::future::join_all(requests).await)
+    }
 }

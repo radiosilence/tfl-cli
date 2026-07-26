@@ -22,7 +22,8 @@ use tfl_api_client::models;
 
 use super::{
     crowding::{DayCrowding, LiveCrowding},
-    loaders::{client, fetched, loaders, to_gql_error},
+    loaders::{TimetableKey, client, fetched, loaders, to_gql_error},
+    timetable::Timetable,
 };
 
 /// A London Underground, Overground, Elizabeth line, DLR, tram, bus or river
@@ -120,6 +121,42 @@ impl Line {
             .await
             .map_err(to_gql_error)?;
         Ok(Some(RouteSequence(sequence)))
+    }
+
+    /// Scheduled departures from a stop — first train, last train, and the
+    /// whole day between.
+    ///
+    /// This is what answers "when is the last train"; `route` gives the stops
+    /// in order but carries no times at all.
+    ///
+    /// `direction` is usually required. Without it TfL replies asking which
+    /// way you meant, which comes back as `isAmbiguous` rather than an error;
+    /// `StopPoint.directionTo` will tell you which to use. One request per
+    /// line, stop and direction, deduplicated across the query.
+    #[graphql(complexity = "child_complexity.saturating_mul(3).saturating_add(20)")]
+    async fn timetable(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "NaPTAN id to depart from. Not a hub id — TfL rejects those here.")]
+        from: String,
+        #[graphql(desc = "\"inbound\" or \"outbound\". Omit and TfL will ask.")] direction: Option<
+            String,
+        >,
+    ) -> Result<Option<Timetable>> {
+        let Some(line) = self.0.id.clone() else {
+            return Ok(None);
+        };
+        let key = TimetableKey {
+            line,
+            from_stop: from,
+            direction,
+        };
+        let loaded = loaders(ctx)
+            .timetable
+            .load_one(key)
+            .await
+            .map_err(to_gql_error)?;
+        Ok(Some(Timetable(fetched(loaded)?)))
     }
 
     /// Every stop this line serves, in no particular order.

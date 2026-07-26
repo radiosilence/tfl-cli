@@ -318,6 +318,34 @@ impl Client {
     }
 }
 
+impl Client {
+    /// A line's timetable from a stop — `/Line/{id}/Timetable/{from}`.
+    ///
+    /// Hand-written because `direction` is not in the Swagger document at all,
+    /// and without it TfL answers with a disambiguation body instead of a
+    /// timetable. The docs imply a path segment, which 404s; it is a query
+    /// parameter.
+    ///
+    /// The disambiguation response is **HTTP 200**, so callers must inspect
+    /// the body rather than the status.
+    pub async fn line_timetable_in_direction<T: serde::de::DeserializeOwned>(
+        &self,
+        line: &str,
+        from_stop: &str,
+        direction: Option<&str>,
+    ) -> Result<T> {
+        let path = format!(
+            "/Line/{}/Timetable/{}",
+            crate::segment(line),
+            crate::segment(from_stop)
+        );
+        let query: Vec<(&str, String)> = direction
+            .map(|d| vec![("direction", d.to_string())])
+            .unwrap_or_default();
+        self.get(&path, &query).await
+    }
+}
+
 fn decode<T: serde::de::DeserializeOwned>(path: &str, body: &str) -> Result<T> {
     serde_json::from_str(body).map_err(|source| Error::Decode {
         path: path.to_string(),

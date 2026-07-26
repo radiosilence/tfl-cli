@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.0
+
+### Added
+
+- `Line.timetable(from:, direction:)` — scheduled departures, so **"when is the
+  last train"** finally has an answer. `route` gives the stops in order but
+  carries no times at all.
+
+  The endpoint was documented; the way to call it was not. `direction` is a
+  query parameter absent from the Swagger document entirely, and the docs imply
+  a path segment, which 404s. Without it TfL replies asking which way you meant
+  — at HTTP 200, so it cannot be detected by status. That surfaces as
+  `isAmbiguous` rather than an error.
+
+  Times are wrapped into real clock times. TfL sends hour 27 for a 03:13 Night
+  Tube train, and reporting that raw would describe a train at twenty-seven
+  o'clock; `isNextDay` says which day it leaves, and
+  `minutesAfterMidnight` keeps the unwrapped figure for ordering across the
+  boundary.
+
 ## 1.1.0
 
 ### Fixed
