@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+Identical to 1.0.0 in behaviour. The 1.0.0 tag was cut from the commit before
+the rename, so its image published to the old `tfl-cli` path; this is the first
+release under `ghcr.io/radiosilence/tfl-mcp` and the one to pin.
+
 ## 1.0.0
 
 Breaking, and the surface is settled enough to say so.
