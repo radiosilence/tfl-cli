@@ -3,66 +3,40 @@
 # arriving per request via the X-Tfl-App-Key header. No key is also fine: TfL
 # serves anonymous callers at 50 requests/minute.
 #
-# Statically linked against musl and run on bare `scratch`. tfl-mcp is an HTTP
-# *client* (it calls api.tfl.gov.uk), so unlike a pure server image the CA
-# bundle must be present at runtime for rustls-platform-verifier to find the
-# system trust store.
+# No build stage, no package manager: CI builds the static musl binary and
+# this image only copies it in. `docker build .` by hand requires dist/ to be
+# populated first. That is intended: docker builds only ever happen in CI.
 
-# Selects which stage supplies the binary. Must be declared before the first
-# FROM to be usable in one. `docker build .` compiles from source; CI passes
-# prebuilt to reuse the binary the release matrix already built.
-ARG BIN_SOURCE=source
+FROM scratch
 
-# CA bundle lives in its OWN stage, NOT the builder. Copying it out of the
-# builder would make the final image depend on the builder stage, forcing a
-# full cargo build even when BIN_SOURCE=prebuilt — which defeats the point.
-FROM debian:bookworm-slim AS certs
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Source build.
-FROM rust:1-slim AS builder
-
-# musl-tools for the static target; cmake/clang for aws-lc-sys, the rustls
-# crypto backend, which is a C/C++ build.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    musl-tools musl-dev cmake clang ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN rustup target add $(uname -m)-unknown-linux-musl
-
-WORKDIR /build
-COPY . .
-
-RUN TARGET=$(uname -m)-unknown-linux-musl && \
-    cargo build --release --locked -p tfl-mcp --target $TARGET && \
-    cp target/$TARGET/release/tfl /tmp/tfl
-
-FROM scratch AS bin-source
-COPY --from=builder /tmp/tfl /tfl
-
-FROM scratch AS bin-prebuilt
 ARG TARGETARCH
+
+# VALIDATED, DO NOT "SIMPLIFY" THIS AWAY:
+# rustls-platform-verifier requires a system trust store on Linux. It does NOT
+# fall back to the webpki roots compiled into the binary. With no CA bundle on
+# disk, reqwest panics before making a single request:
+#   Client::new(): reqwest::Error { kind: Builder,
+#     source: General("No CA certificates were loaded from the system") }
+# Verified by running the static binary on bare scratch against a real HTTPS
+# host: without this line it panics; with it, TLS completes and the server's
+# own auth response comes back. Sourced from distroless/static so we need no
+# package manager and no build stage — it is a plain copy from a published,
+# CVE-maintained image.
+COPY --from=gcr.io/distroless/static:latest \
+     /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
 COPY dist/tfl-linux-${TARGETARCH}-musl /tfl
 
-# Runtime stage. BuildKit only builds the stage this resolves to, so the
-# source build is skipped entirely when BIN_SOURCE=prebuilt.
-FROM bin-${BIN_SOURCE}
-
-# rustls-platform-verifier reads the system trust store, so the bundle has to
-# be in the image. Sourced from the certs stage, not the builder, so the
-# prebuilt path never triggers a compile.
-COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-
 EXPOSE 8080
-
-LABEL org.opencontainers.image.vendor="James Cleveland"
-LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.source="https://github.com/radiosilence/tfl-mcp"
 
 # scratch has no /etc/passwd, so this must be a raw numeric uid rather than a
 # name — matches the uid the previous debian-slim image's `app` user had.
 USER 10001:10001
+
+LABEL org.opencontainers.image.title="tfl-mcp"
+LABEL org.opencontainers.image.vendor="James Cleveland"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.source="https://github.com/radiosilence/tfl-mcp"
 
 ENTRYPOINT ["/tfl"]
 CMD ["--http", "0.0.0.0:8080", "--graphql"]
