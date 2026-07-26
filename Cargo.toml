@@ -27,5 +27,5 @@ percent-encoding = "2"
 
 [profile.release]
 strip = true
-lto = true
-codegen-units = 1
+lto = "thin"
+codegen-units = 16
