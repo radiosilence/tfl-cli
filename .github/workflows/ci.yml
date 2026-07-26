@@ -32,7 +32,7 @@ jobs:
       # api.tfl.gov.uk, which would make CI fail for TfL's outages and spend a
       # shared 50 requests/minute budget on every push.
       - name: Run tests
-        run: cargo test --workspace --verbose
+        run: cargo test --workspace --locked --verbose
 
   codegen:
     name: Generated client matches the spec
@@ -97,7 +97,10 @@ jobs:
           path: tfl-${{ matrix.name }}.tar.gz
 
   publish:
-    needs: release
+    # Also needs the images: this project is consumed as a container, so a
+    # version tag with no image behind it is worse than no tag at all — and an
+    # auto-updater polling releases will happily pin one.
+    needs: [release, build-image]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
