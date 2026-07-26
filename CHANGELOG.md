@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Fixed
+
+- `tfl --graphiql` used to hang. The web flags only did anything alongside
+  `--http`, so without it you got the stdio MCP server sitting on stdin, which
+  looks exactly like a hang. Each flag now brings up what it needs: `--browser`
+  implies `--graphiql`, which implies `--graphql`, and any of them starts a
+  listener.
+- Added `--browser`, which previously did not exist — opening one was welded to
+  `--graphiql`.
+- `--http` now takes an optional address, defaulting to `127.0.0.1:8080`.
+
+`--http` remains the only flag that puts **MCP** on HTTP. Someone poking at
+GraphiQL on a laptop has not asked to expose an MCP endpoint, and the default
+address is loopback rather than all interfaces for the same reason.
+`--http 0.0.0.0:8080 --graphql`, as deployed, is unchanged in meaning.
+
 ### Added
 
 - `StopPoint.crowding` and `StopPoint.crowdingOn(day:)` — how busy a station is

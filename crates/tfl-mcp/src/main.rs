@@ -25,15 +25,63 @@ struct Cli {
 
 #[derive(clap::Args, Clone)]
 struct ServeArgs {
-    /// Serve over HTTP on this address instead of stdio, e.g. `0.0.0.0:8080`.
-    #[arg(long, value_name = "ADDR", global = true)]
+    /// Serve MCP over HTTP as well, rather than only stdio.
+    ///
+    /// Takes an address; defaults to 127.0.0.1:8080. **This is the only flag
+    /// that puts MCP on HTTP** — the web flags below bring up a listener for
+    /// their own surfaces without exposing MCP on it.
+    #[arg(
+        long,
+        value_name = "ADDR",
+        num_args = 0..=1,
+        default_missing_value = DEFAULT_ADDR,
+        global = true
+    )]
     http: Option<String>,
-    /// Also serve a plain GraphQL endpoint at /graphql.
+    /// Serve a GraphQL endpoint at /graphql.
     #[arg(long, global = true)]
     graphql: bool,
-    /// Also serve the GraphiQL IDE at /, and open a browser.
+    /// Serve the GraphiQL IDE at /. Implies --graphql.
     #[arg(long, global = true)]
     graphiql: bool,
+    /// Open GraphiQL in a browser. Implies --graphiql, and so --graphql.
+    #[arg(long, global = true)]
+    browser: bool,
+}
+
+/// Where the web surfaces listen when no address was given.
+///
+/// Loopback rather than all interfaces: a flag typed on a laptop should not
+/// quietly publish to the network. Deployments pass `--http 0.0.0.0:8080`.
+const DEFAULT_ADDR: &str = "127.0.0.1:8080";
+
+impl ServeArgs {
+    /// Resolves the flags, each implying whatever it needs.
+    ///
+    /// `--browser` is meant to be the whole thing in one word, so it turns on
+    /// GraphiQL, which turns on GraphQL. None of them turn on MCP-over-HTTP:
+    /// that is what `--http` is for, and someone poking at GraphiQL locally has
+    /// not asked to expose an MCP endpoint.
+    fn resolve(self) -> (String, HttpSurfaces) {
+        let graphiql = self.graphiql || self.browser;
+        let graphql = self.graphql || graphiql;
+        (
+            self.http
+                .clone()
+                .unwrap_or_else(|| DEFAULT_ADDR.to_string()),
+            HttpSurfaces {
+                mcp: self.http.is_some(),
+                graphql,
+                graphiql,
+                browser: self.browser,
+            },
+        )
+    }
+
+    /// Whether anything at all should be served over HTTP.
+    fn wants_http(&self) -> bool {
+        self.http.is_some() || self.graphql || self.graphiql || self.browser
+    }
 }
 
 #[derive(Subcommand)]
@@ -79,27 +127,11 @@ async fn run() -> anyhow::Result<()> {
         // Checked before binding: a server that starts and then fails every
         // query is worse than one that refuses to start.
         verify_app_key(&app_key).await?;
-        let ServeArgs {
-            http,
-            graphql: serve_graphql,
-            graphiql,
-        } = cli.serve;
-        return match http {
-            Some(addr) => {
-                mcp::run_http_server(
-                    &addr,
-                    app_key,
-                    HttpSurfaces {
-                        mcp: true,
-                        graphql: serve_graphql || graphiql,
-                        graphiql,
-                        browser: graphiql,
-                    },
-                )
-                .await
-            }
-            None => mcp::run_server(app_key).await,
-        };
+        if !cli.serve.wants_http() {
+            return mcp::run_server(app_key).await;
+        }
+        let (addr, surfaces) = cli.serve.resolve();
+        return mcp::run_http_server(&addr, app_key, surfaces).await;
     };
 
     match command {
