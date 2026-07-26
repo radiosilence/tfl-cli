@@ -139,6 +139,80 @@ resolving the corridors it blocks:
     roads { displayName status } } }
 ```
 
+## One question, one query
+
+The compound examples above are the everyday case. This is what the graph is
+actually capable of — a whole picture of getting somewhere, in a single
+request:
+
+```graphql
+{
+  now { local weekday tubeLikelyRunning }
+
+  station: stopPoint(id: "940GZZLUKSX") {
+    commonName
+    crowding { relativeToNormal description }
+    disruptions { isClosed description }
+    arrivals(first: 3) {
+      timeToStation towards platformName
+      line { name isGoodService statuses { description reason } }
+      destination { commonName lat lon }
+    }
+    directionTo(toStopPointId: "940GZZLUBXN", lineId: "victoria")
+  }
+
+  victoria: line(id: "victoria") {
+    timetable(from: "940GZZLUVIC", direction: "inbound") {
+      schedules { name last { time isNextDay } }
+    }
+  }
+
+  bikes: bikePointsNear(lat: 51.5308, lon: -0.1238, radius: 500, first: 2) {
+    commonName distance eBikes emptyDocks
+  }
+
+  air: airQuality { current { band nitrogenDioxide } }
+
+  roads: roadDisruptions(severities: ["Serious", "Severe"], first: 2) {
+    location currentUpdate
+    roads { displayName status }
+  }
+}
+```
+
+Seven domains — live arrivals, crowding, station closures, line status,
+scheduled departures, cycle hire, air quality and road traffic — resolved
+together. Real output, abridged:
+
+```json
+{"now": {"weekday": "Sunday", "tubeLikelyRunning": true},
+ "station": {"commonName": "King's Cross & St Pancras International",
+   "crowding": {"description": "much quieter than usual"},
+   "directionTo": "inbound",
+   "arrivals": [{"timeToStation": 10, "towards": "Walthamstow Central",
+     "platformName": "Northbound - Platform 3",
+     "line": {"name": "Victoria", "isGoodService": false,
+       "statuses": [{"description": "Part Suspended",
+         "reason": "No service between Victoria and Brixton while we fix a points failure…"}]},
+     "destination": {"commonName": "Walthamstow Central"}}]},
+ "victoria": {"timetable": {"schedules": [
+   {"name": "Saturday (also Good Friday)", "last": {"time": "03:13", "isNextDay": true}}]}},
+ "bikes": [{"commonName": "Birkenhead Street, King's Cross", "distance": 123.5, "emptyDocks": 4}],
+ "air": {"current": {"band": "Low"}}}
+```
+
+**Twelve upstream requests.** The number matters less than the shape: these are
+mostly distinct endpoints, so there is not much to collapse — what the graph
+buys here is that a model asks *once* and reasons on a complete answer, rather
+than making a dozen sequential tool calls and holding the state between them.
+Where there *is* fan-out, it collapses: those three arrivals resolve their lines
+and destinations in one batched request each, and would still be one apiece at
+forty arrivals.
+
+Note the schema refuses to run this if you make it genuinely pathological —
+`linesByMode(modes: ["bus"]) { stopPoints }` is only two levels deep but 676
+lines wide, and is rejected before a single request goes out.
+
 ## Coverage
 
 Every domain in TfL's spec, bar one — though "domain" is doing real work in
