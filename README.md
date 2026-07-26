@@ -150,10 +150,15 @@ report the stairs they know about:
 resolving the corridors it blocks:
 
 ```graphql
-{ roadDisruptions(severities: ["Serious", "Severe"], first: 5) {
+{ roadDisruptions(first: 5) {
     severity category location currentUpdate hasClosures
     roads { displayName status } } }
 ```
+
+Worst first, so the top of the list is what matters without naming a severity.
+There is usually nothing `Serious` on London's roads — a typical afternoon is
+around ninety `Minimal` and a dozen `Moderate` — so filtering to the dramatic
+ones mostly returns an empty list.
 
 ## One question, one query
 
@@ -189,8 +194,8 @@ request:
 
   air: airQuality { current { band nitrogenDioxide } }
 
-  roads: roadDisruptions(severities: ["Serious", "Severe"], first: 2) {
-    location currentUpdate
+  roads: roadDisruptions(first: 2) {
+    severity location currentUpdate
     roads { displayName status }
   }
 }
