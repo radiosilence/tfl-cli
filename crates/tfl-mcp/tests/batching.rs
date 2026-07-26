@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use tfl_api_client::{Client, Config};
-use tfl_cli::mcp::graphql;
+use tfl_mcp::mcp::graphql;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path, path_regex},

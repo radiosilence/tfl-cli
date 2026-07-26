@@ -1,11 +1,11 @@
 [package]
-name = "tfl-cli"
+name = "tfl-mcp"
 version = "1.0.0"
-description = "GraphQL server and MCP server for the Transport for London Unified API"
+description = "MCP and GraphQL server for the Transport for London Unified API"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-keywords = ["cli", "tfl", "transport", "graphql", "mcp"]
+keywords = ["tfl", "transport", "graphql", "mcp", "london"]
 categories = ["command-line-utilities"]
 
 [[bin]]

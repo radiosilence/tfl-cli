@@ -176,7 +176,7 @@ impl ServerHandler for TflMcp {
     fn get_info(&self) -> ServerInfo {
         let server_info = Implementation::new("tfl", env!("CARGO_PKG_VERSION"))
             .with_title("TfL MCP Server")
-            .with_website_url("https://github.com/radiosilence/tfl-cli");
+            .with_website_url("https://github.com/radiosilence/tfl-mcp");
 
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_protocol_version(ProtocolVersion::LATEST)

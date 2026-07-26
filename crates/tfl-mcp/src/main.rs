@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use tfl_api_client::{Client, Config};
-use tfl_cli::{
+use tfl_mcp::{
     app_key_from_env, cache_from_env,
     mcp::{self, HttpSurfaces, graphql},
     output::Output,
@@ -38,13 +38,6 @@ struct ServeArgs {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Deprecated: running the server is the default, so `tfl --http …` does
-    /// the same thing.
-    ///
-    /// Kept and hidden so a deployment pinning an image tag independently of
-    /// its arguments cannot break on a version bump alone.
-    #[command(hide = true)]
-    Mcp,
     /// Run a GraphQL query. Use `tfl schema` to see what is available.
     Query {
         /// The query. Reads stdin if omitted.
@@ -64,7 +57,7 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "tfl_cli=info,tfl_api_client=info".into()),
+                .unwrap_or_else(|_| "tfl_mcp=info,tfl_api_client=info".into()),
         )
         // stdout carries the JSON envelope, so logs go to stderr or they would
         // make it unparseable.
@@ -81,8 +74,8 @@ async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let app_key = app_key_from_env();
 
-    // No subcommand, or the deprecated `mcp` one: serve.
-    if matches!(cli.command, None | Some(Commands::Mcp)) {
+    // No subcommand means serve, which is the whole job.
+    let Some(command) = cli.command else {
         // Checked before binding: a server that starts and then fails every
         // query is worse than one that refuses to start.
         verify_app_key(&app_key).await?;
@@ -107,10 +100,9 @@ async fn run() -> anyhow::Result<()> {
             }
             None => mcp::run_server(app_key).await,
         };
-    }
+    };
 
-    match cli.command.expect("serving already returned") {
-        Commands::Mcp => unreachable!("handled above"),
+    match command {
         Commands::Schema => {
             println!("{}", graphql::sdl());
             Ok(())

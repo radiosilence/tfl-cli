@@ -9,7 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }} # radiosilence/tfl-cli
+  IMAGE_NAME: ${{ github.repository }} # radiosilence/tfl-mcp
 
 jobs:
   check:
@@ -85,7 +85,7 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - name: Build
-        run: cargo build --release --locked -p tfl-cli --target ${{ matrix.target }}
+        run: cargo build --release --locked -p tfl-mcp --target ${{ matrix.target }}
       - name: Package
         run: |
           cd target/${{ matrix.target }}/release
@@ -114,7 +114,7 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(grep '^version' crates/tfl-cli/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(grep '^version' crates/tfl-mcp/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
       - name: Check if tag exists

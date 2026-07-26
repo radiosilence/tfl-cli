@@ -1,4 +1,4 @@
-# tfl-cli
+# tfl-mcp
 
 London transport as a GraphQL API, and an MCP server over it. Live arrivals,
 line status, disruptions, journeys, roads, bikes and air quality.
@@ -173,7 +173,7 @@ filtered here after the fact. That field says as much in its own description.
 |---|---|
 | `crates/tfl-api-client/src/generated` | Generated from TfL's Swagger document. Never hand-edited. |
 | `crates/tfl-api-client` | Hand-written transport: auth, retries, errors. |
-| `crates/tfl-cli/src/mcp/graphql` | Hand-written. The graph, and the loaders behind it. |
+| `crates/tfl-mcp/src/mcp/graphql` | Hand-written. The graph, and the loaders behind it. |
 | `xtask` | `cargo xtask regen`. |
 
 The split is the point: the Swagger document is the source of truth for the REST

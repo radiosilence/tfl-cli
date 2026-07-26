@@ -6,10 +6,16 @@ Breaking, and the surface is settled enough to say so.
 
 ### Changed
 
+- **Renamed from `tfl-cli` to `tfl-mcp`**, including the published image, which
+  moves to `ghcr.io/radiosilence/tfl-mcp`. Its siblings earn the `-cli` suffix
+  — you do want to send mail from a terminal — but nobody checks the tube from
+  a shell when they could ask an assistant. The binary is still `tfl`.
+
 - **Serving is the default.** `tfl --http 0.0.0.0:8080` replaces `tfl mcp
-  --http …`. The `mcp` subcommand is kept, hidden and deprecated, so an image
-  tag and its arguments can still move independently — a version bump alone
-  cannot break a running deployment.
+  --http …`, and the `mcp` subcommand is gone rather than deprecated. Anything
+  invoking it must adapt; keeping a compatibility alias alive from the first
+  day of a 1.0 sets the wrong precedent. Deployments must therefore move their
+  image tag and their arguments together.
 - **Removed the `arrivals`, `status` and `search` subcommands.** They were
   GraphQL queries assembled by pasting strings together: a second
   implementation of what `tfl query` already does, carrying its own escaping so

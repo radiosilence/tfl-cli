@@ -11,9 +11,9 @@ use crate::{
 
 const DEFAULT_BASE_URL: &str = "https://api.tfl.gov.uk";
 const USER_AGENT: &str = concat!(
-    "tfl-cli/",
+    "tfl-mcp/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/radiosilence/tfl-cli)"
+    " (+https://github.com/radiosilence/tfl-mcp)"
 );
 
 /// How TfL is reached.

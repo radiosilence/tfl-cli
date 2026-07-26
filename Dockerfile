@@ -9,7 +9,7 @@
 FROM rust:1-bookworm AS build
 WORKDIR /app
 COPY . .
-RUN cargo build --release --locked -p tfl-cli
+RUN cargo build --release --locked -p tfl-mcp
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
