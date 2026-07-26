@@ -6,33 +6,57 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }} # radiosilence/tfl-mcp
 
 jobs:
-  check:
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # --locked so a Cargo.lock left behind by a version bump fails here, with
       # an error that says so, rather than surfacing somewhere unrelated.
-      - name: Build
-        run: cargo build --workspace --locked --verbose
       # The live tests are `#[ignore]`d and stay that way here: they hit
       # api.tfl.gov.uk, which would make CI fail for TfL's outages and spend a
       # shared 50 requests/minute budget on every push.
-      - name: Run tests
-        run: cargo test --workspace --locked --verbose
+      - run: cargo test --workspace --locked --verbose
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  format:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+      # No rust-cache here on purpose: `cargo fmt --check` compiles nothing.
+      - run: cargo fmt --all -- --check
 
   codegen:
     name: Generated client matches the spec
@@ -59,11 +83,37 @@ jobs:
             exit 1
           fi
 
-  release:
-    needs: [check, codegen]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    permissions:
-      contents: write
+  check-version:
+    name: Check Version
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+      major: ${{ steps.check.outputs.major }}
+      major_minor: ${{ steps.check.outputs.major_minor }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT_VERSION=$(grep '^version = ' crates/tfl-mcp/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          LATEST_RELEASE=$(gh release list --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
+          LATEST_VERSION=${LATEST_RELEASE#v}
+          if [ -z "$LATEST_RELEASE" ] || [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          fi
+          echo "version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
+          echo "major=$(echo $CURRENT_VERSION | cut -d. -f1)" >> $GITHUB_OUTPUT
+          echo "major_minor=$(echo $CURRENT_VERSION | cut -d. -f1-2)" >> $GITHUB_OUTPUT
+
+  # Runs on PRs too, so a broken build fails before merge. Only the release
+  # asset (create-release) is gated to main.
+  build-binaries:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
@@ -76,16 +126,16 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             name: darwin-aarch64
-    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - name: Build
-        run: cargo build --release --locked -p tfl-mcp --target ${{ matrix.target }}
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked -p tfl-mcp --target ${{ matrix.target }}
       - name: Package
         run: |
           cd target/${{ matrix.target }}/release
@@ -96,56 +146,15 @@ jobs:
           name: tfl-${{ matrix.name }}
           path: tfl-${{ matrix.name }}.tar.gz
 
-  publish:
-    # Also needs the images: this project is consumed as a container, so a
-    # version tag with no image behind it is worse than no tag at all — and an
-    # auto-updater polling releases will happily pin one.
-    needs: [release, build-image]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      is_new: ${{ steps.check_tag.outputs.exists == 'false' }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      # The root manifest is a workspace with no package, so the version comes
-      # from the binary crate.
-      - name: Get version
-        id: version
-        run: |
-          VERSION=$(grep '^version' crates/tfl-mcp/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
-      - name: Check if tag exists
-        id: check_tag
-        run: |
-          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: steps.check_tag.outputs.exists == 'false'
-        with:
-          path: artifacts
-      - name: Create Release
-        if: steps.check_tag.outputs.exists == 'false'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
-          files: artifacts/**/*.tar.gz
-          generate_release_notes: true
-
+  # Compiles the musl binary and ships it straight into the image on the same
+  # runner. Kept out of build-binaries so the image never waits on the macOS
+  # legs; kept in one job so the binary never round-trips through the artifact
+  # store, which would cost a runner handoff and drop its exec bit.
+  # Runs on PRs too — only the registry push is main-gated, via PUBLISH.
   build-image:
-    name: Build ${{ matrix.arch }} image
-    needs: [check, codegen]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    name: Build ${{ matrix.arch }} Image
     runs-on: ${{ matrix.runner }}
+    needs: [check-version]
     strategy:
       # A transient registry timeout on one arch shouldn't cancel the other.
       fail-fast: false
@@ -154,41 +163,83 @@ jobs:
           - arch: amd64
             platform: linux/amd64
             runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
           - arch: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
     permissions:
       contents: read
       packages: write
+    env:
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-      - uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # musl-tools for the static target; cmake/clang for aws-lc-sys, the
+      # rustls crypto backend, which is a C/C++ build.
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools musl-dev cmake clang
+
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ matrix.target }}
+
+      - run: cargo build --release --locked -p tfl-mcp --target ${{ matrix.target }}
+
+      # Same file feeds the image build and the release asset.
+      - name: Prepare binary
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/tfl \
+            dist/tfl-linux-${{ matrix.arch }}-musl
+
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tfl-linux-${{ matrix.arch }}-musl
+          path: dist/tfl-linux-${{ matrix.arch }}-musl
+
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Log in to Container Registry
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push ${{ matrix.arch }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+
+      # On PRs this still builds — it just discards the result instead of
+      # pushing, so a broken Dockerfile fails before merge rather than after.
+      # No cache-from/cache-to: nothing compiles in the image, and mode=max was
+      # filling the repo-wide 10GB cache that Swatinem/rust-cache shares.
+      - name: Build ${{ matrix.arch }}
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: .
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
-          push: true
+          push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main-${{ matrix.arch }}
-          cache-from: type=gha,scope=${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
-  manifest:
+  create-manifest:
     name: Push image manifest
-    needs: [build-image, publish]
+    needs: [test, lint, format, codegen, build-image, check-version]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -202,12 +253,37 @@ jobs:
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main-arm64
           done
       - name: Create semver manifests
-        if: needs.publish.outputs.is_new == 'true'
+        if: needs.check-version.outputs.should_release == 'true'
         run: |
-          VERSION=${{ needs.publish.outputs.version }}
-          for tag in "v$VERSION" "v$(echo $VERSION | cut -d. -f1,2)" "v$(echo $VERSION | cut -d. -f1)" latest; do
+          for tag in "v${{ needs.check-version.outputs.version }}" \
+                     "v${{ needs.check-version.outputs.major_minor }}" \
+                     "v${{ needs.check-version.outputs.major }}" \
+                     latest; do
             docker buildx imagetools create \
               --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$tag \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main-amd64 \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main-arm64
           done
+
+  # Also needs the manifest: this project is consumed as a container, so a
+  # version tag with no image behind it is worse than no tag at all — and an
+  # auto-updater polling releases will happily pin one.
+  create-release:
+    name: Create Release
+    needs:
+      [test, lint, format, codegen, build-binaries, check-version, create-manifest]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+      - name: Create Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: v${{ needs.check-version.outputs.version }}
+          files: artifacts/**/*.tar.gz
+          generate_release_notes: true
