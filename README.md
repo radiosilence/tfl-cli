@@ -221,16 +221,23 @@ that sentence. TfL publishes 84 endpoints and many are variants of each other
 carries status, so only it is used). The graph reaches what it needs to answer
 questions, not one field per endpoint.
 
-| | |
-|---|---|
-| StopPoint, Line, Prediction | arrivals, status, disruptions, routes, search, geo |
-| Journey | planning, legs, fares, obstacles, accessibility, disambiguation |
-| BikePoint, Occupancy | Santander Cycles, EV charge connectors, car parks |
-| Road | corridors, disruptions, closures |
-| AirQuality, Cabwise, AccidentStats | forecasts, licensed operators, casualty history |
+| Domain | What you can ask | Notable |
+|---|---|---|
+| **StopPoint** | arrivals, disruptions, crowding, facilities, search, geo | live crowding is undocumented by TfL |
+| **Line** | status, disruptions, stops **in travel order**, timetables | `route` orders them; `timetable` times them |
+| **Journey** | planning, legs, fares, obstacles, step-free routing | takes place names, not just ids |
+| **BikePoint** | Santander Cycles: bikes, e-bikes, free docks, nearest | counts parsed out of a stringly-typed bag |
+| **Occupancy** | EV charge connectors, car parks | car parks 500 from TfL more often than not |
+| **Road** | corridors, disruptions, closures, severity | free text a person wrote, not a code |
+| **Place** | car parks, taxi ranks, cycle parks, coach bays, charge stations | everything TfL maps that is not a stop |
+| **AirQuality** | pollution forecast by pollutant | HTML decoded out of it |
+| **Cabwise** | licensed minicab and taxi operators | for when the tube has stopped |
+| **AccidentStats** | 2019 casualty records, by area or radius | 37MB, one year only, filtered locally |
+| **Mode**, **Vehicle**, **Search** | vocabulary, vehicle arrivals, stop search | |
+| ~~TravelTime~~ | — | deliberately absent: map tile images |
 
-**TravelTime is deliberately absent.** It returns map tile images, which mean
-nothing over a text protocol.
+A test derives that list from the committed spec, so a domain cannot go missing
+unnoticed and TfL adding one fails the build rather than passing silently.
 
 Known gaps, tracked as issues: timetables (scheduled departures — "when is the
 last train"), station crowding by time of day, and reachability between two
