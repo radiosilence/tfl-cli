@@ -117,9 +117,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            name: linux-x86_64
           - target: x86_64-apple-darwin
             os: macos-latest
             name: darwin-x86_64
@@ -164,10 +161,12 @@ jobs:
             platform: linux/amd64
             runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            name: linux-x86_64
           - arch: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
+            name: linux-aarch64
     permissions:
       contents: read
       packages: write
@@ -201,11 +200,19 @@ jobs:
           cp target/${{ matrix.target }}/release/tfl \
             dist/tfl-linux-${{ matrix.arch }}-musl
 
+      # The image build below only needs dist/ as-is, so package the release
+      # tarball into a separate dir rather than renaming anything in dist/.
+      - name: Package
+        run: |
+          mkdir -p pkg
+          cp dist/tfl-linux-${{ matrix.arch }}-musl pkg/tfl
+          tar -czvf tfl-${{ matrix.name }}.tar.gz -C pkg tfl
+
       - name: Upload binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tfl-linux-${{ matrix.arch }}-musl
-          path: dist/tfl-linux-${{ matrix.arch }}-musl
+          name: bin-${{ matrix.name }}
+          path: tfl-${{ matrix.name }}.tar.gz
 
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
@@ -271,7 +278,7 @@ jobs:
   create-release:
     name: Create Release
     needs:
-      [test, lint, format, codegen, build-binaries, check-version, create-manifest]
+      [test, lint, format, codegen, build-binaries, build-image, check-version, create-manifest]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
