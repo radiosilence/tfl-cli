@@ -67,6 +67,10 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          # Branch-scoped caches aren't readable from other branches, so a PR
+          # saving here only evicts the main entry every PR restores from.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Regenerates from the committed spec rather than fetching, so this fails
       # for hand-edits under generated/ and for generator changes that were not
       # re-run — not for TfL changing the document, which is a deliberate,
@@ -132,6 +136,10 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: ${{ matrix.target }}
+          # Branch-scoped caches aren't readable from other branches, so a PR
+          # saving here only evicts the main entry every PR restores from — and
+          # a release target/ is the largest entry in the repository's 10GB.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build --release --locked -p tfl-mcp --target ${{ matrix.target }}
       - name: Package
         run: |
@@ -190,6 +198,10 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: ${{ matrix.target }}
+          # Branch-scoped caches aren't readable from other branches, so a PR
+          # saving here only evicts the main entry every PR restores from — and
+          # a release target/ is the largest entry in the repository's 10GB.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - run: cargo build --release --locked -p tfl-mcp --target ${{ matrix.target }}
 
